@@ -14,7 +14,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("VRCX Image Discord Uploader")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+41675bfbe6e4da321166a1f8778cb8e64f10e43b")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+6504cb854655ba85be69209ce4d021be160cd3d1")]
 [assembly: System.Reflection.AssemblyProductAttribute("VRCX Image Discord Uploader")]
 [assembly: System.Reflection.AssemblyTitleAttribute("VRCX Image Discord Uploader")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]

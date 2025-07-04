@@ -13,7 +13,7 @@ Automaticly Uploads Photos to your VRChat
 ![IMAGE HERE SETTINGS](https://cdn.discordapp.com/attachments/1163195342754435193/1250768960912363592/image.png?ex=666c24de&is=666ad35e&hm=1bd2232e598e6ccea6775733a89d558b10d09942bcf1dcda5f8913126a34247e&)
 
 1. Download [Latest Files](https://github.com/NekoSuneProjects/VRCHAT_AUTO_UPLOAD_DISCORD/releases/latest)
-2. Invite [My Discord BOT](https://discord.com/oauth2/authorize?client_id=1249356507292631111) For this Work
+2. Invite [My Discord BOT](https://discord.com/oauth2/authorize?client_id=1390664793345757204) For this Work
 3. Make Text Channel or use Corrent Channel
 4. Edit `.env` and fill 
     SERVERID = Your discord Server ID

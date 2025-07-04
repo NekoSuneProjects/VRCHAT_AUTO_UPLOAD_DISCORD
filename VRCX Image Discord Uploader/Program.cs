@@ -42,25 +42,25 @@ class Program
 
     static async Task WaitForFile(string filePath, int retries = 5, int delay = 500)
     {
-    for (int i = 0; i < retries; i++)
-    {
-        if (File.Exists(filePath))
+        for (int i = 0; i < retries; i++)
         {
-            try
+            if (File.Exists(filePath))
             {
-                using (FileStream stream = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.None))
+                try
                 {
-                    return; // File is ready
+                    using (FileStream stream = File.Open(filePath, FileMode.Open, FileAccess.Read, FileShare.None))
+                    {
+                        return; // File is ready
+                    }
+                }
+                catch (IOException)
+                {
+                    // File is still in use, wait and retry
                 }
             }
-            catch (IOException)
-            {
-                // File is still in use, wait and retry
-            }
+            await Task.Delay(delay);
         }
-        await Task.Delay(delay);
-    }
-    throw new FileNotFoundException($"File not accessible: {filePath}");
+        throw new FileNotFoundException($"File not accessible: {filePath}");
     }
 
 
@@ -73,7 +73,7 @@ class Program
         foreach (var directory in directories)
             foreach (var tag in directory.Tags)
                 if (tag.Name == "Textual Data")
-                description = tag.Description;
+                    description = tag.Description;
 
         // Get the description tag (which might contain JSON)
         if (string.IsNullOrEmpty(description))
@@ -94,21 +94,21 @@ class Program
 
     static (string, List<string>) ExtractImageMetadata(string description)
     {
-            
 
-            // Deserialize metadata JSON from description
-            var metadata = JsonConvert.DeserializeObject<JObject>(description);
 
-            // Extract required fields from metadata
-            string worldName = "["+ metadata["world"]["name"].ToString() + "](<https://vrchat.com/home/world/"+ metadata["world"]["id"].ToString() + ">)";
-            //string worldId = metadata["world"]["id"].ToString();
+        // Deserialize metadata JSON from description
+        var metadata = JsonConvert.DeserializeObject<JObject>(description);
 
-            var playerNames = metadata["players"]
-                .ToObject<List<JObject>>()
-                .Select(player => "["+player["displayName"].ToString()+ "](<https://vrchat.com/home/user/" + player["id"].ToString() + ">)")
-                .ToList();
+        // Extract required fields from metadata
+        string worldName = "[" + metadata["world"]["name"].ToString() + "](<https://vrchat.com/home/world/" + metadata["world"]["id"].ToString() + ">)";
+        //string worldId = metadata["world"]["id"].ToString();
 
-            return (worldName, playerNames);
+        var playerNames = metadata["players"]
+            .ToObject<List<JObject>>()
+            .Select(player => "[" + player["displayName"].ToString() + "](<https://vrchat.com/home/user/" + player["id"].ToString() + ">)")
+            .ToList();
+
+        return (worldName, playerNames);
     }
 
 
@@ -117,16 +117,17 @@ class Program
     {
         var fileInfo = new FileInfo(filePath);
         long timestamp = new DateTimeOffset(fileInfo.CreationTime).ToUnixTimeSeconds();
-        var Jsondata = ExtractJsonDescription(filePath);;
+        var Jsondata = ExtractJsonDescription(filePath);
 
         (string worldName, List<string> playerNames) = ExtractImageMetadata(Jsondata);
 
-        var payload = new
+        var payloadObject = new
         {
-            content = $"Photo taken at **{worldName}** with **{string.Join(", ", playerNames)}** at <t:{timestamp}:f>"
+            world = worldName,
+            players = playerNames
         };
 
-        return $"Photo taken at **{worldName}** with **{string.Join(", ", playerNames)}** at <t:{timestamp}:f>"; //JsonConvert.SerializeObject(payload);
+        return JsonConvert.SerializeObject(payloadObject);
     }
 
     static async Task UploadImageToDiscord(string filePath)
@@ -150,7 +151,7 @@ class Program
                 byte[] imageData = File.ReadAllBytes(filePath);
                 var imageContent = new ByteArrayContent(imageData);
                 imageContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
-                form.Add(new StringContent(await CreatePayload(filePath)), "content");
+                form.Add(new StringContent(await CreatePayload(filePath)), "vrcjson");
                 form.Add(new StringContent("false"), "isEmbed");
                 form.Add(imageContent, "file", Path.GetFileName(filePath));
 

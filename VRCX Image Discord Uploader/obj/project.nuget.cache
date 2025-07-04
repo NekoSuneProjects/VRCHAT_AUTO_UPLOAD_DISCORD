@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "dgSpecHash": "FpNG6YN5n1a6YptLXwxjBxCbsOuNjJ+987Ttq8029v+XPmQOP2JXo0KGo0ajY/DdlAVGkaP4Tcck2a1SCAPA5w==",
+  "dgSpecHash": "/meqCrlrXsY=",
   "success": true,
-  "projectFilePath": "C:\\Users\\Chisd\\source\\repos\\VRCHAT_AUTO_UPLOAD_DISCORD\\VRCX Image Discord Uploader\\VRCX Image Discord Uploader.csproj",
+  "projectFilePath": "D:\\DEV\\VRCHAT_AUTO_UPLOAD_DISCORD\\VRCX Image Discord Uploader\\VRCX Image Discord Uploader.csproj",
   "expectedPackageFiles": [
     "C:\\Users\\Chisd\\.nuget\\packages\\dotnetenv\\3.0.0\\dotnetenv.3.0.0.nupkg.sha512",
     "C:\\Users\\Chisd\\.nuget\\packages\\metadataextractor\\2.8.1\\metadataextractor.2.8.1.nupkg.sha512",

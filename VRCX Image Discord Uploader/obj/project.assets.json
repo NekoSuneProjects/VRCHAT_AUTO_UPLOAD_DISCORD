@@ -4923,11 +4923,11 @@
   "project": {
     "version": "1.0.0",
     "restore": {
-      "projectUniqueName": "C:\\Users\\Chisd\\source\\repos\\VRCHAT_AUTO_UPLOAD_DISCORD\\VRCX Image Discord Uploader\\VRCX Image Discord Uploader.csproj",
+      "projectUniqueName": "D:\\DEV\\VRCHAT_AUTO_UPLOAD_DISCORD\\VRCX Image Discord Uploader\\VRCX Image Discord Uploader.csproj",
       "projectName": "VRCX Image Discord Uploader",
-      "projectPath": "C:\\Users\\Chisd\\source\\repos\\VRCHAT_AUTO_UPLOAD_DISCORD\\VRCX Image Discord Uploader\\VRCX Image Discord Uploader.csproj",
+      "projectPath": "D:\\DEV\\VRCHAT_AUTO_UPLOAD_DISCORD\\VRCX Image Discord Uploader\\VRCX Image Discord Uploader.csproj",
       "packagesPath": "C:\\Users\\Chisd\\.nuget\\packages\\",
-      "outputPath": "C:\\Users\\Chisd\\source\\repos\\VRCHAT_AUTO_UPLOAD_DISCORD\\VRCX Image Discord Uploader\\obj\\",
+      "outputPath": "D:\\DEV\\VRCHAT_AUTO_UPLOAD_DISCORD\\VRCX Image Discord Uploader\\obj\\",
       "projectStyle": "PackageReference",
       "fallbackFolders": [
         "C:\\Program Files (x86)\\Microsoft Visual Studio\\Shared\\NuGetPackages"
@@ -4960,7 +4960,8 @@
         "enableAudit": "true",
         "auditLevel": "low",
         "auditMode": "direct"
-      }
+      },
+      "SdkAnalysisLevel": "9.0.100"
     },
     "frameworks": {
       "net8.0": {
@@ -4995,7 +4996,7 @@
             "privateAssets": "all"
           }
         },
-        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\8.0.206/PortableRuntimeIdentifierGraph.json"
+        "runtimeIdentifierGraphPath": "C:\\Program Files\\dotnet\\sdk\\9.0.107/PortableRuntimeIdentifierGraph.json"
       }
     }
   }
