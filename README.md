@@ -39,3 +39,8 @@ Todo that use `/regenerate-key` in Channel and to get AuthKey `/show-token-key`
 # THIS WONT WORK ON APPLE/LINUX/ANDROID/IOS YET, I NEED WORK ON APP SIDE OF THAT (RIGHT NOW WORKS AS WINDOWS ONLY)
 
 <!-- GitAds-Verify: W1F9IKPOL4OH2YF27KBRPY4I8AQE71PZ -->
+
+## GitAds Sponsored
+[![Sponsored by GitAds](https://gitads.dev/v1/ad-serve?source=nekosuneprojects/vrchat_auto_upload_discord@github)](https://gitads.dev/v1/ad-track?source=nekosuneprojects/vrchat_auto_upload_discord@github)
+
+
