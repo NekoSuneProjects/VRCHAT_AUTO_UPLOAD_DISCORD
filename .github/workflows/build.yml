@@ -160,7 +160,7 @@ jobs:
           $color = if ($env:CHANNEL -eq "beta") { 16750848 } else { 65280 }
 
           $json = @{
-            username = "VRCX Image Discord Uploader Bot"
+            username = "VRCX Uploader Bot"
             content = "<@&1384262560395559122> **NEW WINDOWS RELEASE**"
             embeds = @(
               @{
