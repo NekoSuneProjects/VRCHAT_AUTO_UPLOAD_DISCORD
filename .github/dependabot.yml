@@ -1,0 +1,19 @@
+version: 2
+
+updates:
+  # ==========================
+  # .NET / NuGet packages
+  # ==========================
+  - package-ecosystem: "nuget"
+    directory: "/"   # root where .sln or .csproj is
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 5
+
+  # ==========================
+  # GitHub Actions updates
+  # ==========================
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
