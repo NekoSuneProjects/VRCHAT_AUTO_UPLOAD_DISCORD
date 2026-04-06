@@ -17,7 +17,6 @@ class Program
     static string directoryToMonitor;
     static DateTime appStartTime;
 
-    // Track processed screenshots (by base name)
     static HashSet<string> processedBaseNames = new HashSet<string>();
 
     static async Task Main(string[] args)
@@ -33,7 +32,6 @@ class Program
         await CheckForNewFiles(directoryToMonitor);
     }
 
-    // 🔒 Wait until file is fully written & unlocked
     static async Task WaitForFileReady(string path, int retries = 15, int delay = 500)
     {
         for (int i = 0; i < retries; i++)
@@ -54,7 +52,6 @@ class Program
         throw new Exception("File never became ready.");
     }
 
-    // 🔍 Wait for rename OR final version
     static async Task<string> WaitForFinalFile(string originalPath)
     {
         string dir = Path.GetDirectoryName(originalPath);
@@ -64,7 +61,6 @@ class Program
         {
             var files = System.IO.Directory.GetFiles(dir, baseName + "*");
 
-            // Prefer renamed version
             var renamed = files.FirstOrDefault(f => f.Contains("_wrld_"));
             if (renamed != null)
                 return renamed;
@@ -78,7 +74,6 @@ class Program
         return null;
     }
 
-    // 📦 Wait until metadata exists
     static async Task<string> WaitForMetadata(string filePath)
     {
         for (int i = 0; i < 10; i++)
@@ -115,7 +110,6 @@ class Program
         return null;
     }
 
-    // 🧠 Normalize filename (remove _wrld_ part)
     static string GetBaseName(string path)
     {
         string name = Path.GetFileNameWithoutExtension(path);
@@ -151,23 +145,36 @@ class Program
             {
                 httpClient.DefaultRequestHeaders.Add("Authorization", "Bearer " + webhookAuthKey);
 
-                var (world, players) = ExtractImageMetadata(jsonData);
-
-                var payload = JsonConvert.SerializeObject(new
-                {
-                    world = world,
-                    players = players
-                });
-
                 var form = new MultipartFormDataContent();
+
+                // If metadata exists → use it
+                if (jsonData != null)
+                {
+                    var (world, players) = ExtractImageMetadata(jsonData);
+
+                    var payload = JsonConvert.SerializeObject(new
+                    {
+                        world = world,
+                        players = players
+                    });
+
+                    form.Add(new StringContent(payload), "vrcjson");
+                    Console.WriteLine("📦 Uploading WITH metadata");
+                }
+                else
+                {
+                    // fallback
+                    form.Add(new StringContent("{}"), "vrcjson");
+                    Console.WriteLine("⚠️ Uploading WITHOUT metadata");
+                }
+
+                form.Add(new StringContent("false"), "isEmbed");
 
                 byte[] imageData = File.ReadAllBytes(filePath);
                 var imageContent = new ByteArrayContent(imageData);
                 imageContent.Headers.ContentType =
                     new System.Net.Http.Headers.MediaTypeHeaderValue("application/octet-stream");
 
-                form.Add(new StringContent(payload), "vrcjson");
-                form.Add(new StringContent("false"), "isEmbed");
                 form.Add(imageContent, "file", Path.GetFileName(filePath));
 
                 var response = await httpClient.PostAsync(webhookUrl, form);
@@ -183,20 +190,17 @@ class Program
         }
     }
 
-    // 🧠 MASTER HANDLER
     static async Task HandleFile(string path)
     {
         try
         {
             var fileInfo = new FileInfo(path);
 
-            // 🚫 Ignore old files
             if (fileInfo.CreationTime < appStartTime)
                 return;
 
             string baseName = GetBaseName(path);
 
-            // 🚫 Already processed
             if (processedBaseNames.Contains(baseName))
                 return;
 
@@ -215,13 +219,7 @@ class Program
 
             var metadata = await WaitForMetadata(finalPath);
 
-            if (metadata == null)
-            {
-                Console.WriteLine($"⚠️ Skipped (no metadata): {finalPath}");
-                return;
-            }
-
-            // ✅ mark BEFORE upload (prevents duplicates)
+            // ✅ mark BEFORE upload
             processedBaseNames.Add(baseName);
 
             await UploadImageToDiscord(finalPath, metadata);
