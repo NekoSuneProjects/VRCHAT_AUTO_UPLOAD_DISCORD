@@ -15,8 +15,10 @@ class Program
     static string webhookUrl;
     static string webhookAuthKey;
     static string directoryToMonitor;
+    static DateTime appStartTime;
 
-    static HashSet<string> processedFiles = new HashSet<string>();
+    // Track processed screenshots (by base name)
+    static HashSet<string> processedBaseNames = new HashSet<string>();
 
     static async Task Main(string[] args)
     {
@@ -26,7 +28,8 @@ class Program
         webhookAuthKey = Environment.GetEnvironmentVariable("DISCORD_WEBHOOK_AuthKey");
         directoryToMonitor = Environment.GetEnvironmentVariable("VRCHAT_IMAGE_PATH");
 
-        await ProcessExistingFiles(directoryToMonitor);
+        appStartTime = DateTime.Now;
+
         await CheckForNewFiles(directoryToMonitor);
     }
 
@@ -61,12 +64,11 @@ class Program
         {
             var files = System.IO.Directory.GetFiles(dir, baseName + "*");
 
-            // Prefer renamed (_wrld_) version
+            // Prefer renamed version
             var renamed = files.FirstOrDefault(f => f.Contains("_wrld_"));
             if (renamed != null)
                 return renamed;
 
-            // fallback to original if no rename happened
             if (File.Exists(originalPath))
                 return originalPath;
 
@@ -111,6 +113,18 @@ class Program
         }
 
         return null;
+    }
+
+    // 🧠 Normalize filename (remove _wrld_ part)
+    static string GetBaseName(string path)
+    {
+        string name = Path.GetFileNameWithoutExtension(path);
+
+        int index = name.IndexOf("_wrld_");
+        if (index != -1)
+            name = name.Substring(0, index);
+
+        return name;
     }
 
     static (string, List<string>) ExtractImageMetadata(string description)
@@ -169,27 +183,36 @@ class Program
         }
     }
 
-    // 🧠 MASTER HANDLER (everything controlled here)
+    // 🧠 MASTER HANDLER
     static async Task HandleFile(string path)
     {
         try
         {
+            var fileInfo = new FileInfo(path);
+
+            // 🚫 Ignore old files
+            if (fileInfo.CreationTime < appStartTime)
+                return;
+
+            string baseName = GetBaseName(path);
+
+            // 🚫 Already processed
+            if (processedBaseNames.Contains(baseName))
+                return;
+
             Console.WriteLine($"Detected: {path}");
 
-            // Step 1: wait for rename or final file
             string finalPath = await WaitForFinalFile(path);
-
             if (finalPath == null)
                 return;
 
-            // Step 2: avoid duplicates
-            if (processedFiles.Contains(finalPath))
+            baseName = GetBaseName(finalPath);
+
+            if (processedBaseNames.Contains(baseName))
                 return;
 
-            // Step 3: wait until file is fully written
             await WaitForFileReady(finalPath);
 
-            // Step 4: wait for metadata
             var metadata = await WaitForMetadata(finalPath);
 
             if (metadata == null)
@@ -198,9 +221,9 @@ class Program
                 return;
             }
 
-            processedFiles.Add(finalPath);
+            // ✅ mark BEFORE upload (prevents duplicates)
+            processedBaseNames.Add(baseName);
 
-            // Step 5: upload
             await UploadImageToDiscord(finalPath, metadata);
         }
         catch (Exception ex)
@@ -231,16 +254,8 @@ class Program
 
         watcher.EnableRaisingEvents = true;
 
+        Console.WriteLine("👀 Watching for new VRChat screenshots...");
+
         await Task.Delay(-1);
-    }
-
-    static async Task ProcessExistingFiles(string directory)
-    {
-        var files = System.IO.Directory.GetFiles(directory, "*.png", SearchOption.AllDirectories);
-
-        foreach (var file in files)
-        {
-            await HandleFile(file);
-        }
     }
 }
