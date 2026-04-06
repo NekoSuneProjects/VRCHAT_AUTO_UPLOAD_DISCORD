@@ -11,7 +11,7 @@
 
   <ItemGroup>
     <PackageReference Include="DotNetEnv" Version="3.0.0" />
-    <PackageReference Include="MetadataExtractor" Version="2.8.1" />
+    <PackageReference Include="MetadataExtractor" Version="2.9.2" />
     <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
   </ItemGroup>
 
