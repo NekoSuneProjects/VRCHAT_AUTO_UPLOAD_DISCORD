@@ -51,16 +51,22 @@ jobs:
       - name: Determine Version
         shell: pwsh
         run: |
+          $base = $env:BASE_VERSION
+
+          if (-not $base -or $base.Trim() -eq "") {
+            $base = "1.0.0"
+          }
+
           if ("${{ github.ref_name }}" -eq "BETA") {
             $CHANNEL="beta"
             $TAG="BETA-${{ github.run_number }}"
-            $VERSION="$env:BASE_VERSION-beta-${{ github.run_number }}"
-            $RELEASE_NAME="VRCX Image Discord Uploader BETA v$env:BASE_VERSION-${{ github.run_number }}"
+            $VERSION="$base-beta-${{ github.run_number }}"
+            $RELEASE_NAME="VRCX Image Discord Uploader BETA v$base-${{ github.run_number }}"
           } else {
             $CHANNEL="release"
-            $TAG="$env:BASE_VERSION"
-            $VERSION="$env:BASE_VERSION"
-            $RELEASE_NAME="VRCX Image Discord Uploader $env:BASE_VERSION"
+            $TAG="$base"
+            $VERSION="$base"
+            $RELEASE_NAME="VRCX Image Discord Uploader $base"
           }
 
           echo "CHANNEL=$CHANNEL" >> $env:GITHUB_ENV
