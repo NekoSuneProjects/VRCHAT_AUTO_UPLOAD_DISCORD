@@ -73,7 +73,7 @@ public partial class MainWindow : Window
         _watcher.Activity += a => Dispatcher.BeginInvoke(() => ActivityText.Text = a);
         _watcher.Processed += e => Dispatcher.BeginInvoke(() => Notify(e));
         // new photo uploaded while the Photos page is open: rescan so it shows up
-        _watcher.Processed += _ => Dispatcher.BeginInvoke(() =>
+        _watcher.Processed += entry => Dispatcher.BeginInvoke(() =>
         {
             if (PagePhotos.Visibility == Visibility.Visible && PhotoDetail.Visibility != Visibility.Visible) _ = LoadPhotosAsync();
         });
