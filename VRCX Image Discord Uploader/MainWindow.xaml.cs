@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
@@ -72,6 +73,11 @@ public partial class MainWindow : Window
         _watcher.RunningChanged += r => Dispatcher.BeginInvoke(() => SetRunningUi(r));
         _watcher.Activity += a => Dispatcher.BeginInvoke(() => ActivityText.Text = a);
         _watcher.Processed += e => Dispatcher.BeginInvoke(() => Notify(e));
+        // new photo uploaded while the Photos page is open: rescan so it shows up
+        _watcher.Processed += entry => Dispatcher.BeginInvoke(() =>
+        {
+            if (PagePhotos.Visibility == Visibility.Visible && PhotoDetail.Visibility != Visibility.Visible) _ = LoadPhotosAsync();
+        });
 
         StateChanged += (_, _) =>
         {
@@ -87,7 +93,11 @@ public partial class MainWindow : Window
 
         // update check shortly after start, then every 6 hours
         _updateTimer.Interval = TimeSpan.FromHours(6);
-        _updateTimer.Tick += async (_, _) => await CheckUpdatesAsync(manual: false);
+        _updateTimer.Tick += async (_, _) =>
+        {
+            await CheckUpdatesAsync(manual: false);
+            await RefreshDestinationInfoAsync();
+        };
         _updateTimer.Start();
         _ = FirstUpdateCheckAsync();
         ShowWhatsNewAfterUpdate();
@@ -192,7 +202,9 @@ public partial class MainWindow : Window
         PageSettings.Visibility = tag == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         PageData.Visibility = tag == "Data" ? Visibility.Visible : Visibility.Collapsed;
         PageLogs.Visibility = tag == "Logs" ? Visibility.Visible : Visibility.Collapsed;
+        PagePhotos.Visibility = tag == "Photos" ? Visibility.Visible : Visibility.Collapsed;
         if (tag == "Data") RefreshDataPage();
+        if (tag == "Photos") _ = LoadPhotosAsync();
         if (tag == "Logs" && _logs.Count > 0) LogList.ScrollIntoView(_logs[^1]);
     }
 
@@ -229,6 +241,8 @@ public partial class MainWindow : Window
 
     void RefreshHistory()
     {
+        foreach (var p in _monthItems) p.RefreshStatus();
+        if (PhotoDetail.Visibility == Visibility.Visible && _detail != null) RenderDetailDestinations();
         var all = UploadHistory.Instance.Snapshot();
         _recent.Clear();
         foreach (var h in all.Take(100)) _recent.Add(new HistoryItem(h));
@@ -240,16 +254,305 @@ public partial class MainWindow : Window
         DataHistoryCount.Text = all.Count.ToString();
     }
 
-    async void UploadFile_Click(object s, RoutedEventArgs e)
+    /// <summary>"Other file…": open any PNG in the photo view, where the servers can be picked.</summary>
+    void UploadFile_Click(object s, RoutedEventArgs e)
     {
-        if (!IsConfigured(out var why, needFolder: false)) { Toast(why, error: true); return; }
         var dlg = new OpenFileDialog
         {
             Filter = "PNG screenshots|*.png",
             InitialDirectory = Directory.Exists(_settings.ScreenshotFolder) ? _settings.ScreenshotFolder : "",
         };
         if (dlg.ShowDialog(this) != true) return;
-        await UploadManual(dlg.FileName);
+        ShowPhotoDetail(new PhotoItem(dlg.FileName), standalone: true);
+    }
+
+    // ================= Photos =================
+
+    List<PhotoMonth> _months = new();
+    List<PhotoItem> _monthItems = new();
+    List<PhotoItem> _visiblePhotos = new();
+    PhotoItem? _detail;
+    bool _detailStandalone, _scanning;
+    HashSet<string> _detailOnServer = new(); // destination ids whose server already has this photo
+
+    async Task LoadPhotosAsync()
+    {
+        if (_scanning) return;
+        _scanning = true;
+        try
+        {
+            var folder = _settings.ScreenshotFolder;
+            if (!Directory.Exists(folder))
+            {
+                PhotosSub.Text = "Pick your VRChat screenshot folder in Settings first.";
+                MonthList.ItemsSource = null;
+                ShowPhotos(new List<PhotoItem>());
+                return;
+            }
+            PhotosSub.Text = "Scanning…";
+            var keep = (MonthList.SelectedItem as PhotoMonth)?.Month;
+            _months = await Task.Run(() => PhotoLibrary.Scan(folder, _settings.IncludeSubfolders));
+            int total = _months.Sum(m => m.Count);
+            PhotosSub.Text = $"{total:N0} photos in {folder}";
+            MonthList.ItemsSource = _months;
+            MonthList.SelectedItem = _months.FirstOrDefault(m => m.Month == keep) ?? _months.FirstOrDefault();
+            if (_months.Count == 0) ShowPhotos(new List<PhotoItem>());
+        }
+        catch (Exception ex)
+        {
+            PhotosSub.Text = "Couldn't read the folder: " + ex.Message;
+        }
+        finally { _scanning = false; }
+    }
+
+    void MonthList_SelectionChanged(object s, SelectionChangedEventArgs e)
+    {
+        if (MonthList.SelectedItem is not PhotoMonth m) return;
+        _monthItems = m.Files.Select(f => new PhotoItem(f)).ToList();
+        PhotoScroll.ScrollToTop();
+        ApplyPhotoFilter();
+    }
+
+    void PhotoFilter_Checked(object s, RoutedEventArgs e)
+    {
+        if (PhotoGrid != null) ApplyPhotoFilter();
+    }
+
+    void ApplyPhotoFilter()
+    {
+        IEnumerable<PhotoItem> list = _monthItems;
+        if (FilterNot.IsChecked == true) list = list.Where(p => p.Status == PhotoStatus.NotUploaded);
+        else if (FilterDone.IsChecked == true) list = list.Where(p => p.Status != PhotoStatus.NotUploaded);
+        ShowPhotos(list.ToList());
+    }
+
+    void ShowPhotos(List<PhotoItem> list)
+    {
+        _visiblePhotos = list;
+        PhotoGrid.ItemsSource = list;
+        int done = _monthItems.Count(p => p.Status == PhotoStatus.Uploaded);
+        PhotoCount.Text = _monthItems.Count == 0 ? "" : $"{list.Count} shown · {done} of {_monthItems.Count} uploaded";
+        PhotosEmpty.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        PhotosEmptyText.Text = _monthItems.Count == 0 ? "No photos here" : "Nothing matches this filter";
+    }
+
+    void PhotosRefresh_Click(object s, RoutedEventArgs e) => _ = LoadPhotosAsync();
+    void PhotosOpenFolder_Click(object s, RoutedEventArgs e)
+    {
+        var folder = (MonthList.SelectedItem as PhotoMonth)?.Files.FirstOrDefault() is { } f ? Path.GetDirectoryName(f)! : _settings.ScreenshotFolder;
+        if (Directory.Exists(folder)) OpenFolder(folder);
+    }
+
+    void Photo_Click(object s, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)s).Tag is PhotoItem p) ShowPhotoDetail(p, standalone: false);
+    }
+
+    // ---- photo detail ----
+
+    async void ShowPhotoDetail(PhotoItem p, bool standalone)
+    {
+        _detail = p;
+        _detailStandalone = standalone;
+        PhotoDetail.Visibility = Visibility.Visible;
+        PdImage.Source = p.Thumbnail; // quick preview while the full image loads
+        PdWorld.Text = "Reading photo…";
+        PdTaken.Text = "Taken " + p.TakenAt.ToString("dddd d MMMM yyyy, HH:mm:ss");
+        PdFile.Text = p.FileName;
+        PdInfo.Text = "";
+        PdPlayers.Text = "";
+        PdStatus.Text = "";
+        _detailOnServer = new HashSet<string>();
+        RenderDetailDestinations();
+
+        var path = p.Path;
+        var (img, info, size, hash) = await Task.Run(() =>
+        {
+            var full = PhotoItem.Load(path, 1600);
+            ScreenshotInfo meta;
+            long len = 0;
+            string sha = "";
+            try
+            {
+                var bytes = File.ReadAllBytes(path);
+                len = bytes.Length;
+                sha = DiscordUploader.Sha256Hex(bytes);
+                meta = ScreenshotMetadata.Read(new MemoryStream(bytes), path);
+            }
+            catch { meta = new ScreenshotInfo(); }
+            return (full, meta, len, sha);
+        });
+        if (_detail != p) return; // user moved on
+        _ = CheckDetailOnServersAsync(p, hash);
+
+        if (img != null) PdImage.Source = img;
+        PdWorld.Text = info.HasWorld
+            ? (string.IsNullOrEmpty(info.WorldName) ? "Unknown world name" : info.WorldName)
+            : "No world info in this photo";
+
+        var lines = new List<string>();
+        if (!string.IsNullOrEmpty(info.WorldId)) lines.Add("World ID: " + info.WorldId);
+        if (!string.IsNullOrEmpty(info.InstanceId)) lines.Add("Instance: " + info.InstanceId);
+        var res = ScreenshotMetadata.ResolutionFromFileName(path) ?? (img is BitmapSource b ? $"{b.PixelWidth}×{b.PixelHeight}" : null);
+        if (res != null) lines.Add("Size: " + res + (size > 0 ? $" · {size / 1024.0 / 1024.0:0.0} MB" : ""));
+        lines.Add("Info from: " + (info.Source == "none" ? "nothing (no VRCX metadata)" : info.Source));
+        PdInfo.Text = string.Join("\n", lines);
+
+        bool hasPlayers = info.Players.Count > 0;
+        PdPlayersLabel.Visibility = PdPlayers.Visibility = hasPlayers ? Visibility.Visible : Visibility.Collapsed;
+        PdPlayers.Text = string.Join("  ·  ", info.Players.Select(x => x.DisplayName));
+        if (hasPlayers) PdPlayersLabel.Text = $"Players ({info.Players.Count})";
+    }
+
+    /// <summary>Asks each Nekumi server whether it already has this exact photo (same bytes), then locks those.</summary>
+    async Task CheckDetailOnServersAsync(PhotoItem p, string hash)
+    {
+        if (hash.Length == 0) return;
+        var dests = _settings.Destinations.Where(d => d.AuthKey.Trim().Length > 0).ToList();
+        var checks = await Task.WhenAll(dests.Select(async d => (d.Id, Posted: await DiscordUploader.CheckPostedAsync(d, new[] { hash }))));
+        if (_detail != p) return;
+        _detailOnServer = checks.Where(c => c.Posted?.Contains(hash) == true).Select(c => c.Id).ToHashSet();
+        if (_detailOnServer.Count > 0) RenderDetailDestinations();
+    }
+
+    /// <summary>
+    /// One toggle per destination with a key. Locked when the photo is already there (history or server check)
+    /// or the server's new rules haven't been accepted. Pre-ticks enabled ones the photo hasn't reached yet.
+    /// </summary>
+    void RenderDetailDestinations()
+    {
+        if (_detail == null) return;
+        PdDestinations.Children.Clear();
+        var history = UploadHistory.Instance.Find(_detail.BaseName);
+        var uploadedTo = history?.UploadedTo() ?? new HashSet<string>();
+        var usable = _settings.Destinations.Where(d => d.AuthKey.Trim().Length > 0 && d.Url.Trim().Length > 0).ToList();
+
+        foreach (var d in usable)
+        {
+            var r = history?.Results.FirstOrDefault(x => x.DestinationId == d.Id);
+            bool already = uploadedTo.Contains(d.Id) || _detailOnServer.Contains(d.Id);
+            string state = already ? "  ✓ already posted"
+                : d.NeedsRulesAcceptance ? "  – accept its rules in Settings"
+                : r is { Success: false } ? "  ✗ failed"
+                : d.Enabled ? "" : "  (paused)";
+            var cb = new CheckBox
+            {
+                Style = (Style)FindResource("Toggle"),
+                Content = d.Name + state,
+                Tag = d.Id,
+                IsEnabled = !already && !d.NeedsRulesAcceptance,
+                IsChecked = !already && !d.NeedsRulesAcceptance && d.Enabled,
+                ToolTip = already ? "This photo is already on this server – it won't be posted twice."
+                    : r is { Success: false } ? r.Error : null,
+            };
+            cb.Click += (_, _) => RenderDetailRules();
+            PdDestinations.Children.Add(cb);
+        }
+        if (usable.Count == 0)
+            PdDestinations.Children.Add(new TextBlock { Text = "Add a server in Settings → Upload destinations first.", Style = (Style)FindResource("Muted") });
+
+        bool any = PdDestinations.Children.OfType<CheckBox>().Any(c => c.IsEnabled);
+        PdUploadButton.IsEnabled = any;
+        if (!any && usable.Count > 0 && PdDestinations.Children.OfType<CheckBox>().All(c => ((string)c.Content).Contains("already posted")))
+            PdStatus.Text = "✓ Already on every server.";
+        else if (history != null && PdStatus.Text.Length == 0)
+            PdStatus.Text = $"Last upload {history.Time:dd MMM yyyy HH:mm}";
+        RenderDetailRules();
+    }
+
+    /// <summary>The rules of every ticked server, right above the Upload button.</summary>
+    void RenderDetailRules()
+    {
+        PdRules.Children.Clear();
+        var ids = PdDestinations.Children.OfType<CheckBox>().Where(c => c.IsChecked == true).Select(c => (string)c.Tag).ToHashSet();
+        foreach (var d in _settings.Destinations.Where(x => ids.Contains(x.Id) && x.Rules.Count > 0))
+        {
+            var box = new Border
+            {
+                Background = new SolidColorBrush(Color.FromArgb(0x1F, 0xF5, 0x9E, 0x0B)),
+                BorderBrush = new SolidColorBrush(Color.FromArgb(0x66, 0xF5, 0x9E, 0x0B)),
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(8),
+                Padding = new Thickness(10, 8, 10, 8),
+                Margin = new Thickness(0, 6, 0, 0),
+            };
+            var panel = new StackPanel();
+            panel.Children.Add(new TextBlock { Text = $"⚠️ Rules – {d.Name}", FontWeight = FontWeights.SemiBold, Foreground = new SolidColorBrush(Color.FromRgb(0xFC, 0xD3, 0x4D)) });
+            foreach (var rule in d.Rules)
+                panel.Children.Add(new TextBlock { Text = "• " + rule, TextWrapping = TextWrapping.Wrap, FontSize = 12, Margin = new Thickness(0, 3, 0, 0), Foreground = (Brush)FindResource("Text") });
+            box.Child = panel;
+            PdRules.Children.Add(box);
+        }
+    }
+
+    async void PdUpload_Click(object s, RoutedEventArgs e)
+    {
+        if (_detail == null) return;
+        var ids = PdDestinations.Children.OfType<CheckBox>().Where(c => c.IsChecked == true).Select(c => (string)c.Tag).ToList();
+        if (ids.Count == 0) { Toast("Tick at least one server", error: true); return; }
+        if (!File.Exists(_detail.Path)) { Toast("File no longer exists", error: true); return; }
+
+        var p = _detail;
+        PdUploadButton.IsEnabled = false;
+        PdUploadText.Text = "Uploading…";
+        try
+        {
+            _watcher.UpdateSettings(_settings);
+            var r = await _watcher.UploadManualAsync(p.Path, ids);
+            if (r == null) PdStatus.Text = "Upload didn't run – see Logs.";
+            else
+            {
+                var mine = r.Results.Where(x => ids.Contains(x.DestinationId)).ToList();
+                PdStatus.Text = mine.All(x => x.Success)
+                    ? $"✓ Uploaded to {string.Join(", ", mine.Select(x => x.Name))}"
+                    : "✗ " + string.Join("; ", mine.Where(x => !x.Success).Select(x => $"{x.Name}: {x.Error}"));
+                Toast(mine.All(x => x.Success) ? "Uploaded!" : "Some uploads failed", error: !mine.All(x => x.Success));
+            }
+            p.RefreshStatus();
+            if (_detail == p) RenderDetailDestinations();
+        }
+        finally
+        {
+            PdUploadButton.IsEnabled = true;
+            PdUploadText.Text = "Upload to selected";
+        }
+    }
+
+    void StepDetail(int delta)
+    {
+        if (_detail == null || _detailStandalone) return;
+        int i = _visiblePhotos.IndexOf(_detail);
+        if (i < 0) return;
+        int n = i + delta;
+        if (n >= 0 && n < _visiblePhotos.Count) ShowPhotoDetail(_visiblePhotos[n], standalone: false);
+    }
+
+    void PdPrev_Click(object s, RoutedEventArgs e) => StepDetail(-1);
+    void PdNext_Click(object s, RoutedEventArgs e) => StepDetail(+1);
+    void PdClose_Click(object s, RoutedEventArgs e) { PhotoDetail.Visibility = Visibility.Collapsed; _detail = null; ApplyPhotoFilter(); }
+
+    void PdShow_Click(object s, RoutedEventArgs e)
+    {
+        if (_detail != null && File.Exists(_detail.Path)) Process.Start("explorer.exe", $"/select,\"{_detail.Path}\"");
+    }
+
+    void PdOpen_Click(object s, RoutedEventArgs e)
+    {
+        if (_detail != null && File.Exists(_detail.Path)) OpenUrl(_detail.Path);
+    }
+
+    protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        if (PhotoDetail.Visibility == Visibility.Visible && !(e.OriginalSource is TextBox))
+        {
+            switch (e.Key)
+            {
+                case System.Windows.Input.Key.Left: StepDetail(-1); e.Handled = true; return;
+                case System.Windows.Input.Key.Right: StepDetail(+1); e.Handled = true; return;
+                case System.Windows.Input.Key.Escape: PdClose_Click(this, new RoutedEventArgs()); e.Handled = true; return;
+            }
+        }
+        base.OnPreviewKeyDown(e);
     }
 
     async void Retry_Click(object s, RoutedEventArgs e)
@@ -390,6 +693,59 @@ public partial class MainWindow : Window
         DestEmpty.Visibility = _settings.Destinations.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         AddCommunityButton.Visibility = _settings.Destinations.Any(d => d.Kind == DestinationKind.Community)
             ? Visibility.Collapsed : Visibility.Visible;
+        UpdateRulesBanner();
+    }
+
+    /// <summary>Re-reads every server's name, visibility and rules. New rules pause auto-upload there until accepted.</summary>
+    async Task RefreshDestinationInfoAsync()
+    {
+        var updates = new List<(string Id, DestinationInfo Info)>();
+        foreach (var d in _settings.Destinations.Where(x => x.AuthKey.Trim().Length > 0).ToList())
+        {
+            try
+            {
+                var info = await DiscordUploader.GetInfoAsync(d);
+                if (info != null) updates.Add((d.Id, info));
+            }
+            catch (Exception ex) { Log.Warn($"Couldn't refresh {d.Name}: {ex.Message}"); }
+        }
+        bool changed = updates.Any(u =>
+        {
+            var d = _settings.Destinations.FirstOrDefault(x => x.Id == u.Id);
+            return d != null && (!d.Rules.SequenceEqual(u.Info.Rules) || d.ServerName != u.Info.ServerName
+                                 || d.ChannelName != u.Info.ChannelName || d.Visibility != u.Info.Visibility);
+        });
+        if (!changed) return;
+
+        SaveDestinations(n =>
+        {
+            foreach (var (id, info) in updates)
+            {
+                var d = n.Destinations.FirstOrDefault(x => x.Id == id);
+                if (d == null) continue;
+                if (d.Rules.Count > 0 && !d.Rules.SequenceEqual(info.Rules))
+                    Log.Warn($"{d.Name} changed its upload rules – review them in Settings before photos are posted there again.");
+                d.Rules = info.Rules.ToList();
+                d.ServerName = info.ServerName;
+                d.ChannelName = info.ChannelName;
+                d.Visibility = info.Visibility;
+            }
+        });
+    }
+
+    void UpdateRulesBanner()
+    {
+        var pending = _settings.Destinations.Where(d => d.NeedsRulesAcceptance).Select(d => d.Name).ToList();
+        RulesBanner.Visibility = pending.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (pending.Count > 0)
+            RulesBannerText.Text = $"{string.Join(", ", pending)} {(pending.Count == 1 ? "has" : "have")} upload rules to accept. Photos won't be posted there until you do.";
+    }
+
+    void RulesReview_Click(object s, RoutedEventArgs e)
+    {
+        var d = _settings.Destinations.FirstOrDefault(x => x.NeedsRulesAcceptance);
+        NavSettings.IsChecked = true;
+        if (d != null) OpenEditor(d.Clone(), isNew: false);
     }
 
     void SaveDestinations(Action<AppSettings> change)
@@ -463,6 +819,9 @@ public partial class MainWindow : Window
             ? Visibility.Visible : Visibility.Collapsed;
         EdStatus.Text = "";
         UpdateKeyInfo();
+        _edInfoFor = d.ServerName.Length > 0 || d.Rules.Count > 0 ? InfoKey(d) : null;
+        RenderEditorInfo(d);
+        EdAccept.IsChecked = d.Rules.Count > 0 && !d.NeedsRulesAcceptance;
         DestEditor.Visibility = Visibility.Visible;
         EdName.Focus();
     }
@@ -510,16 +869,104 @@ public partial class MainWindow : Window
         return d;
     }
 
-    void DestSave_Click(object s, RoutedEventArgs e)
+    // ---- server info + rules in the editor ----
+
+    string? _edInfoFor; // key|url the shown info belongs to
+
+    static string InfoKey(UploadDestination d) => d.AuthKey.Trim() + "|" + d.ResolveUrl();
+
+    void RenderEditorInfo(UploadDestination d)
+    {
+        var where = d.ServerName.Length > 0 ? $"Posts to {d.ServerName}" + (d.ChannelName.Length > 0 ? $" › #{d.ChannelName}" : "") : "";
+        var vis = d.Visibility switch
+        {
+            "public" => "Public – members use their own keys",
+            "private" => "Private – server key only",
+            _ => "",
+        };
+        EdServerInfo.Text = string.Join("  ·  ", new[] { where, vis }.Where(x => x.Length > 0));
+        EdRulesList.Children.Clear();
+        foreach (var rule in d.Rules)
+        {
+            var row = new Grid { Margin = new Thickness(0, 2, 0, 2) };
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(16) });
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.Children.Add(new TextBlock { Text = "•", Foreground = (Brush)FindResource("Warning") });
+            var t = new TextBlock { Text = rule, TextWrapping = TextWrapping.Wrap, Foreground = (Brush)FindResource("Text"), FontSize = 12.5 };
+            Grid.SetColumn(t, 1);
+            row.Children.Add(t);
+            EdRulesList.Children.Add(row);
+        }
+        EdRulesPanel.Visibility = d.Rules.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// Asks the server where this key posts and what its rules are. Copies the result onto both
+    /// <paramref name="d"/> and the copy being edited. Returns an error only for a rejected key.
+    /// </summary>
+    async Task<string?> FetchEditorInfoAsync(UploadDestination d)
+    {
+        EdStatus.Foreground = (Brush)FindResource("TextMuted");
+        EdStatus.Text = "Checking the server…";
+        try
+        {
+            var info = await DiscordUploader.GetInfoAsync(d);
+            _edInfoFor = InfoKey(d);
+            if (info == null)
+            {
+                EdStatus.Text = "This server doesn't publish rules or server info (older bot or custom URL).";
+                return null;
+            }
+            bool rulesChanged = !info.Rules.SequenceEqual(d.Rules);
+            foreach (var target in new[] { d, _editing! })
+            {
+                target.Rules = info.Rules.ToList();
+                target.ServerName = info.ServerName;
+                target.ChannelName = info.ChannelName;
+                target.Visibility = info.Visibility;
+            }
+            RenderEditorInfo(d);
+            if (rulesChanged) EdAccept.IsChecked = false;
+            EdStatus.Foreground = (Brush)FindResource("Success");
+            EdStatus.Text = "✓ Key works" + (info.Rules.Count > 0 ? " – read the rules below." : ".");
+            return null;
+        }
+        catch (HttpRequestException ex) when (ex.Message.StartsWith("401") || ex.Message.StartsWith("403"))
+        {
+            return "The server rejected this key: " + ex.Message;
+        }
+        catch (Exception ex)
+        {
+            // offline etc.: allow saving, rules get fetched later
+            EdStatus.Foreground = (Brush)FindResource("Warning");
+            EdStatus.Text = "Couldn't reach the server (" + ex.Message + "). Rules will be checked later.";
+            return null;
+        }
+    }
+
+    async void DestSave_Click(object s, RoutedEventArgs e)
     {
         var d = ReadEditor(out var error);
         if (d == null) return;
-        if (error.Length > 0)
+        void Fail(string msg)
         {
             EdStatus.Foreground = (Brush)FindResource("Danger");
-            EdStatus.Text = error;
-            return;
+            EdStatus.Text = msg;
         }
+        if (error.Length > 0) { Fail(error); return; }
+
+        if (_edInfoFor != InfoKey(d))
+        {
+            var bad = await FetchEditorInfoAsync(d);
+            if (bad != null) { Fail(bad); return; }
+            d = ReadEditor(out _) ?? d; // pick up the fetched rules
+        }
+        if (d.Rules.Count > 0)
+        {
+            if (EdAccept.IsChecked != true) { Fail("Read the rules and tick “I've read these rules” first."); return; }
+            d.AcceptedRulesHash = d.RulesHash;
+        }
+
         SaveDestinations(n =>
         {
             int i = n.Destinations.FindIndex(x => x.Id == d.Id);
@@ -543,9 +990,24 @@ public partial class MainWindow : Window
         EdStatus.Foreground = (Brush)FindResource("TextMuted");
         EdStatus.Text = "Checking…";
         var r = await DiscordUploader.CheckAsync(d);
-        EdStatus.Foreground = (Brush)FindResource(r.Success ? "Success" : "Danger");
-        EdStatus.Text = (r.Success ? "✓ " : "✗ ") + r.Message
-            + (r.Success && d.AuthKey.Length > 0 ? " The key itself is checked on the first upload." : "");
+        if (!r.Success)
+        {
+            EdStatus.Foreground = (Brush)FindResource("Danger");
+            EdStatus.Text = "✗ " + r.Message;
+            return;
+        }
+        if (d.AuthKey.Length == 0)
+        {
+            EdStatus.Foreground = (Brush)FindResource("Success");
+            EdStatus.Text = "✓ " + r.Message + " Paste the key to check it too.";
+            return;
+        }
+        var bad = await FetchEditorInfoAsync(d);
+        if (bad != null)
+        {
+            EdStatus.Foreground = (Brush)FindResource("Danger");
+            EdStatus.Text = "✗ " + bad;
+        }
     }
 
     void Settle_Changed(object s, RoutedPropertyChangedEventArgs<double> e)
@@ -606,6 +1068,7 @@ public partial class MainWindow : Window
     {
         await Task.Delay(TimeSpan.FromSeconds(4));
         await CheckUpdatesAsync(manual: false);
+        await RefreshDestinationInfoAsync();
     }
 
     async void CheckUpdates_Click(object s, RoutedEventArgs e)

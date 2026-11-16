@@ -39,7 +39,8 @@
                         <Border x:Name="badge" CornerRadius="10" Padding="10,3" HorizontalAlignment="Right" Background="{StaticResource SuccessSoft}">
                             <TextBlock x:Name="badgeText" Text="{Binding Entry.StatusText}" FontSize="11.5" FontWeight="SemiBold" Foreground="{StaticResource Success}"/>
                         </Border>
-                        <TextBlock Text="{Binding Entry.TimeText}" Style="{StaticResource Muted}" HorizontalAlignment="Right" Margin="0,6,0,0"/>
+                        <TextBlock Text="{Binding Entry.TakenText}" Foreground="{StaticResource Text}" FontSize="12.5" HorizontalAlignment="Right" Margin="0,6,0,0"/>
+                        <TextBlock Text="{Binding Entry.TimeText}" Style="{StaticResource Muted}" FontSize="11" HorizontalAlignment="Right"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
                             <Button Style="{StaticResource Ghost}" ToolTip="Upload again (only to the failed servers if some failed)" Click="Retry_Click" Tag="{Binding}">
                                 <TextBlock Style="{StaticResource Icon}" FontSize="13" Text="&#xE72C;"/>
@@ -114,6 +115,9 @@
                         <RadioButton x:Name="NavDashboard" Style="{StaticResource NavItem}" IsChecked="True" Checked="Nav_Checked" Tag="Dashboard">
                             <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE80F;"/><TextBlock Text="Dashboard" Margin="12,0,0,0"/></StackPanel>
                         </RadioButton>
+                        <RadioButton x:Name="NavPhotos" Style="{StaticResource NavItem}" Checked="Nav_Checked" Tag="Photos">
+                            <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE91B;"/><TextBlock Text="Photos" Margin="12,0,0,0"/></StackPanel>
+                        </RadioButton>
                         <RadioButton x:Name="NavSettings" Style="{StaticResource NavItem}" Checked="Nav_Checked" Tag="Settings">
                             <StackPanel Orientation="Horizontal"><TextBlock Style="{StaticResource Icon}" Text="&#xE713;"/><TextBlock Text="Settings" Margin="12,0,0,0"/></StackPanel>
                         </RadioButton>
@@ -156,12 +160,6 @@
                             <TextBlock x:Name="ActivityText" Text="Ready" Style="{StaticResource Muted}" Margin="0,4,0,0"/>
                         </StackPanel>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
-                            <Button Click="UploadFile_Click" Margin="0,0,10,0" ToolTip="Pick a screenshot and upload it now">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock Style="{StaticResource Icon}" FontSize="14" Text="&#xE898;"/>
-                                    <TextBlock Text="Upload file…" Margin="8,0,0,0"/>
-                                </StackPanel>
-                            </Button>
                             <Button x:Name="ToggleButton" Style="{StaticResource Primary}" Click="Toggle_Click" MinWidth="150">
                                 <StackPanel Orientation="Horizontal">
                                     <TextBlock x:Name="ToggleIcon" Style="{StaticResource Icon}" FontSize="14" Text="&#xE768;"/>
@@ -172,6 +170,16 @@
                     </Grid>
 
                     <StackPanel Grid.Row="1">
+                    <!-- A server changed its rules -->
+                    <Border x:Name="RulesBanner" Margin="0,18,0,0" Padding="16,12" CornerRadius="10"
+                            Background="#1FF59E0B" BorderBrush="#66F59E0B" BorderThickness="1" Visibility="Collapsed">
+                        <DockPanel>
+                            <Button DockPanel.Dock="Right" Content="Review rules" Click="RulesReview_Click" Padding="12,6"/>
+                            <TextBlock Style="{StaticResource Icon}" Text="&#xE7BA;" Foreground="{StaticResource Warning}" Margin="0,0,12,0"/>
+                            <TextBlock x:Name="RulesBannerText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="#FCD34D"/>
+                        </DockPanel>
+                    </Border>
+
                     <!-- Update available -->
                     <Border x:Name="UpdateBanner" Margin="0,18,0,0" Padding="16,12" CornerRadius="10"
                             Background="{StaticResource AccentSoft}" BorderBrush="{StaticResource Accent}" BorderThickness="1" Visibility="Collapsed">
@@ -247,6 +255,137 @@
                     </DockPanel>
                 </Grid>
 
+                <!-- ===== Photos ===== -->
+                <Grid x:Name="PagePhotos" Grid.Row="1" Margin="32,4,24,20" Visibility="Collapsed">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="210"/>
+                        <ColumnDefinition Width="*"/>
+                    </Grid.ColumnDefinitions>
+
+                    <Grid Grid.ColumnSpan="2" Margin="0,0,8,16">
+                        <StackPanel>
+                            <TextBlock Text="Photos" Style="{StaticResource H1}"/>
+                            <TextBlock x:Name="PhotosSub" Text="Your VRChat screenshots by month" Style="{StaticResource Muted}" Margin="0,4,0,0"/>
+                        </StackPanel>
+                        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                            <Button Style="{StaticResource Ghost}" Click="PhotosRefresh_Click" ToolTip="Rescan the folder" Margin="0,0,6,0">
+                                <TextBlock Style="{StaticResource Icon}" FontSize="14" Text="&#xE72C;"/>
+                            </Button>
+                            <Button Content="Open folder" Click="PhotosOpenFolder_Click" Margin="0,0,10,0"/>
+                            <Button Content="Other file…" Click="UploadFile_Click" ToolTip="Pick a screenshot from somewhere else"/>
+                        </StackPanel>
+                    </Grid>
+
+                    <!-- months -->
+                    <ListBox x:Name="MonthList" Grid.Row="1" Background="Transparent" BorderThickness="0" Margin="0,0,16,0"
+                             SelectionChanged="MonthList_SelectionChanged" ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBox.ItemContainerStyle>
+                            <Style TargetType="ListBoxItem">
+                                <Setter Property="Foreground" Value="{StaticResource TextMuted}"/>
+                                <Setter Property="Cursor" Value="Hand"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="ListBoxItem">
+                                            <Border x:Name="bd" CornerRadius="8" Padding="12,9" Margin="0,0,0,3" Background="Transparent">
+                                                <ContentPresenter/>
+                                            </Border>
+                                            <ControlTemplate.Triggers>
+                                                <Trigger Property="IsMouseOver" Value="True">
+                                                    <Setter TargetName="bd" Property="Background" Value="#14FFFFFF"/>
+                                                </Trigger>
+                                                <Trigger Property="IsSelected" Value="True">
+                                                    <Setter TargetName="bd" Property="Background" Value="{StaticResource AccentSoft}"/>
+                                                    <Setter Property="Foreground" Value="{StaticResource Text}"/>
+                                                </Trigger>
+                                            </ControlTemplate.Triggers>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                            </Style>
+                        </ListBox.ItemContainerStyle>
+                        <ListBox.ItemTemplate>
+                            <DataTemplate>
+                                <DockPanel>
+                                    <Border DockPanel.Dock="Right" CornerRadius="9" Padding="8,1" Background="#14FFFFFF" VerticalAlignment="Center">
+                                        <TextBlock Text="{Binding Count}" FontSize="11.5"/>
+                                    </Border>
+                                    <StackPanel>
+                                        <TextBlock Text="{Binding Title}" FontSize="13.5" FontWeight="SemiBold"/>
+                                        <TextBlock Text="{Binding Sub}" FontSize="11" Opacity="0.7"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </DataTemplate>
+                        </ListBox.ItemTemplate>
+                    </ListBox>
+
+                    <!-- grid -->
+                    <DockPanel Grid.Row="1" Grid.Column="1">
+                        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,12">
+                            <RadioButton x:Name="FilterAll" Style="{StaticResource NavItem}" GroupName="pfilter" Margin="0,0,4,0" IsChecked="True" Checked="PhotoFilter_Checked" Content="All"/>
+                            <RadioButton x:Name="FilterNot" Style="{StaticResource NavItem}" GroupName="pfilter" Margin="0,0,4,0" Checked="PhotoFilter_Checked" Content="Not uploaded"/>
+                            <RadioButton x:Name="FilterDone" Style="{StaticResource NavItem}" GroupName="pfilter" Margin="0,0,4,0" Checked="PhotoFilter_Checked" Content="Uploaded"/>
+                            <TextBlock x:Name="PhotoCount" Style="{StaticResource Muted}" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                        </StackPanel>
+                        <Grid>
+                            <ScrollViewer x:Name="PhotoScroll" VerticalScrollBarVisibility="Auto">
+                                <ItemsControl x:Name="PhotoGrid">
+                                    <ItemsControl.ItemsPanel>
+                                        <ItemsPanelTemplate>
+                                            <WrapPanel/>
+                                        </ItemsPanelTemplate>
+                                    </ItemsControl.ItemsPanel>
+                                    <ItemsControl.ItemTemplate>
+                                        <DataTemplate>
+                                            <Button Click="Photo_Click" Tag="{Binding}" Margin="0,0,10,10" Cursor="Hand" ToolTip="{Binding FileName}">
+                                                <Button.Template>
+                                                    <ControlTemplate TargetType="Button">
+                                                        <Border x:Name="tile" Width="208" CornerRadius="10" Background="{StaticResource Card}"
+                                                                BorderBrush="{StaticResource Border}" BorderThickness="1" ClipToBounds="True">
+                                                            <StackPanel>
+                                                                <Grid Height="117">
+                                                                    <Border Background="{StaticResource Input}" CornerRadius="9,9,0,0"/>
+                                                                    <Image Source="{Binding Thumbnail}" Stretch="UniformToFill"/>
+                                                                    <Border x:Name="badge" CornerRadius="8" Padding="7,2" Margin="6" HorizontalAlignment="Right"
+                                                                            VerticalAlignment="Top" Background="#CC12141B">
+                                                                        <TextBlock x:Name="badgeText" Text="{Binding StatusText}" FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource TextMuted}"/>
+                                                                    </Border>
+                                                                </Grid>
+                                                                <TextBlock Text="{Binding TimeText}" Margin="10,7,10,8" FontSize="12" Foreground="{StaticResource Text}"/>
+                                                            </StackPanel>
+                                                        </Border>
+                                                        <ControlTemplate.Triggers>
+                                                            <Trigger Property="IsMouseOver" Value="True">
+                                                                <Setter TargetName="tile" Property="BorderBrush" Value="{StaticResource Accent}"/>
+                                                            </Trigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Uploaded">
+                                                                <Setter TargetName="badgeText" Property="Foreground" Value="{StaticResource Success}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Partial">
+                                                                <Setter TargetName="badgeText" Property="Foreground" Value="{StaticResource Warning}"/>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Status}" Value="Failed">
+                                                                <Setter TargetName="badgeText" Property="Foreground" Value="#FCA5A5"/>
+                                                            </DataTrigger>
+                                                        </ControlTemplate.Triggers>
+                                                    </ControlTemplate>
+                                                </Button.Template>
+                                            </Button>
+                                        </DataTemplate>
+                                    </ItemsControl.ItemTemplate>
+                                </ItemsControl>
+                            </ScrollViewer>
+                            <StackPanel x:Name="PhotosEmpty" VerticalAlignment="Center" HorizontalAlignment="Center" Visibility="Collapsed">
+                                <TextBlock Style="{StaticResource Icon}" Text="&#xE91B;" FontSize="40" Foreground="{StaticResource TextDim}" HorizontalAlignment="Center"/>
+                                <TextBlock x:Name="PhotosEmptyText" Text="No photos here" FontSize="15" FontWeight="SemiBold" HorizontalAlignment="Center" Margin="0,12,0,0" Foreground="{StaticResource Text}"/>
+                            </StackPanel>
+                        </Grid>
+                    </DockPanel>
+                </Grid>
+
                 <!-- ===== Settings ===== -->
                 <Grid x:Name="PageSettings" Grid.Row="1" Visibility="Collapsed">
                     <Grid.RowDefinitions>
@@ -286,6 +425,7 @@
                                                                 </Border>
                                                             </StackPanel>
                                                             <TextBlock Text="{Binding KeyHint}" Style="{StaticResource Muted}" FontFamily="Cascadia Mono, Consolas" Margin="0,3,0,0"/>
+                                                            <TextBlock x:Name="dinfo" Text="{Binding InfoText}" Style="{StaticResource Muted}" FontSize="11.5" Margin="0,2,0,0"/>
                                                         </StackPanel>
                                                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                                                             <CheckBox Style="{StaticResource Toggle}" Margin="0,0,6,0" IsChecked="{Binding Enabled, Mode=OneWay}"
@@ -308,6 +448,10 @@
                                                     </DataTrigger>
                                                     <DataTrigger Binding="{Binding Enabled}" Value="False">
                                                         <Setter TargetName="drow" Property="Opacity" Value="0.55"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding NeedsRulesAcceptance}" Value="True">
+                                                        <Setter TargetName="dinfo" Property="Foreground" Value="{StaticResource Warning}"/>
+                                                        <Setter TargetName="drow" Property="BorderBrush" Value="#66F59E0B"/>
                                                     </DataTrigger>
                                                 </DataTemplate.Triggers>
                                             </DataTemplate>
@@ -495,6 +639,69 @@
                     <TextBlock x:Name="ToastText" FontWeight="SemiBold"/>
                 </Border>
 
+                <!-- Photo detail -->
+                <Grid x:Name="PhotoDetail" Grid.Row="1" Visibility="Collapsed" Background="#D90A0B10">
+                    <Border MaxWidth="1040" Margin="28,12,28,24" VerticalAlignment="Center"
+                            Background="{StaticResource Card}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="14">
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="330"/>
+                            </Grid.ColumnDefinitions>
+
+                            <!-- image + prev/next -->
+                            <Grid Margin="16">
+                                <Border Background="{StaticResource Input}" CornerRadius="10" MinHeight="300">
+                                    <Image x:Name="PdImage" Stretch="Uniform" MaxHeight="560"/>
+                                </Border>
+                                <Button Style="{StaticResource Ghost}" HorizontalAlignment="Left" VerticalAlignment="Center" Click="PdPrev_Click" ToolTip="Previous (←)" Background="#99000000" Margin="8,0,0,0">
+                                    <TextBlock Style="{StaticResource Icon}" FontSize="18" Text="&#xE76B;" Foreground="White"/>
+                                </Button>
+                                <Button Style="{StaticResource Ghost}" HorizontalAlignment="Right" VerticalAlignment="Center" Click="PdNext_Click" ToolTip="Next (→)" Background="#99000000" Margin="0,0,8,0">
+                                    <TextBlock Style="{StaticResource Icon}" FontSize="18" Text="&#xE76C;" Foreground="White"/>
+                                </Button>
+                            </Grid>
+
+                            <!-- info + actions -->
+                            <DockPanel Grid.Column="1">
+                                <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0" Padding="18,14">
+                                    <StackPanel>
+                                        <Button x:Name="PdUploadButton" Style="{StaticResource Primary}" Click="PdUpload_Click" HorizontalAlignment="Stretch">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Style="{StaticResource Icon}" FontSize="14" Text="&#xE898;"/>
+                                                <TextBlock x:Name="PdUploadText" Text="Upload to selected" Margin="8,0,0,0"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <UniformGrid Columns="3" Margin="0,8,0,0">
+                                            <Button Content="Show" Click="PdShow_Click" Margin="0,0,4,0" ToolTip="Show in folder"/>
+                                            <Button Content="Open" Click="PdOpen_Click" Margin="2,0" ToolTip="Open in your image viewer"/>
+                                            <Button Content="Close" Click="PdClose_Click" Margin="4,0,0,0"/>
+                                        </UniformGrid>
+                                    </StackPanel>
+                                </Border>
+                                <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="18,18,18,8">
+                                    <StackPanel>
+                                        <TextBlock x:Name="PdWorld" Text="World" FontSize="17" FontWeight="SemiBold" TextWrapping="Wrap" Foreground="{StaticResource Text}"/>
+                                        <TextBlock x:Name="PdTaken" Style="{StaticResource Muted}" Margin="0,4,0,0"/>
+                                        <TextBlock x:Name="PdFile" Style="{StaticResource Muted}" Foreground="{StaticResource TextDim}" FontSize="11" Margin="0,2,0,0"/>
+
+                                        <TextBlock Text="Details" Style="{StaticResource Label}"/>
+                                        <TextBlock x:Name="PdInfo" Foreground="{StaticResource Text}" FontSize="12.5" TextWrapping="Wrap" LineHeight="19"/>
+
+                                        <TextBlock x:Name="PdPlayersLabel" Text="Players" Style="{StaticResource Label}"/>
+                                        <TextBlock x:Name="PdPlayers" Foreground="{StaticResource Text}" FontSize="12.5" TextWrapping="Wrap" LineHeight="19"/>
+
+                                        <TextBlock Text="Upload to" Style="{StaticResource Label}"/>
+                                        <StackPanel x:Name="PdDestinations"/>
+                                        <StackPanel x:Name="PdRules" Margin="0,6,0,0"/>
+                                        <TextBlock x:Name="PdStatus" Style="{StaticResource Muted}" Margin="0,8,0,0"/>
+                                    </StackPanel>
+                                </ScrollViewer>
+                            </DockPanel>
+                        </Grid>
+                    </Border>
+                </Grid>
+
                 <!-- What's new / changelog -->
                 <Grid x:Name="WhatsNew" Grid.Row="1" Visibility="Collapsed" Background="#B30A0B10">
                     <Border Width="620" MaxHeight="640" VerticalAlignment="Center" HorizontalAlignment="Center"
@@ -587,6 +794,16 @@
                                             </StackPanel>
                                         </Grid>
                                     </StackPanel>
+
+                                    <TextBlock x:Name="EdServerInfo" Style="{StaticResource Muted}" Margin="0,10,0,0"/>
+                                    <Border x:Name="EdRulesPanel" Visibility="Collapsed" Margin="0,12,0,0" Padding="14,12" CornerRadius="10"
+                                            Background="#1FF59E0B" BorderBrush="#66F59E0B" BorderThickness="1">
+                                        <StackPanel>
+                                            <TextBlock Text="⚠️ Rules" FontWeight="SemiBold" FontSize="14" Foreground="#FCD34D"/>
+                                            <StackPanel x:Name="EdRulesList" Margin="0,6,0,4"/>
+                                            <CheckBox x:Name="EdAccept" Style="{StaticResource Toggle}" Margin="0,6,0,0" Content="I've read these rules and will follow them"/>
+                                        </StackPanel>
+                                    </Border>
 
                                     <CheckBox x:Name="EdEnabled" Style="{StaticResource Toggle}" Margin="0,16,0,4" Content="Post screenshots here"/>
                                     <TextBlock x:Name="EdStatus" Style="{StaticResource Muted}" FontWeight="SemiBold" Margin="0,6,0,4"/>
