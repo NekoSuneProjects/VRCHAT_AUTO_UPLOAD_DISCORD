@@ -90,7 +90,8 @@ jobs:
       # Publish EXE
       # ==========================
       - name: Publish
-        run: dotnet publish -c Release -r win-x64 --self-contained true -o dist
+        # InformationalVersion = "2.1.0" or "2.1.0-beta-<run>" – the in-app update checker reads it.
+        run: dotnet publish -c Release -r win-x64 --self-contained true -o dist -p:InformationalVersion=${{ env.VERSION }} -p:IncludeSourceRevisionInInformationalVersion=false
 
       # ==========================
       # Create ZIP FILE
@@ -111,17 +112,35 @@ jobs:
       # ==========================
       # Release Notes
       # ==========================
-      - name: Generate Release Notes
-        id: notes
-        uses: release-drafter/release-drafter@v7
-        with:
-          token: ${{ secrets.GITHUB_TOKEN }}
-          # v7 builds "github:" config paths with "\" on Windows runners (404 from the API),
-          # so read the checked-out file from disk instead.
-          config-name: file:release-drafter.yml
-          version: ${{ env.VERSION }}
-          name: ${{ env.RELEASE_NAME }}
-          tag: ${{ env.TAG }}
+      - name: Release Notes from CHANGELOG.md
+        shell: pwsh
+        run: |
+          # Copy the "## <version>" section of CHANGELOG.md into the release description.
+          # The app reads release descriptions for "What's new" and stops at <!-- app-notes-end -->.
+          $base = $env:BASE_VERSION
+          $section = New-Object System.Collections.Generic.List[string]
+          $inside = $false
+          foreach ($line in (Get-Content -Path CHANGELOG.md -Encoding utf8)) {
+            if ($line -match '^##\s+\[?v?(\d+\.\d+\.\d+)') {
+              if ($inside) { break }
+              if ($Matches[1] -eq $base) { $inside = $true }
+              continue
+            }
+            if ($inside -and $line -match '^## ') { break }
+            if ($inside) { $section.Add($line) }
+          }
+          $notes = ($section -join "`n").Trim()
+          if (-not $notes) {
+            echo "::warning title=CHANGELOG.md::No '## $base' section found - add one so the release and the app show what changed."
+            $notes = "No changelog entry for $base yet."
+          }
+          if ($env:CHANNEL -eq "beta") {
+            $notes = "> Beta build $($env:VERSION) - may contain bugs.`n`n$notes"
+          }
+          $download = "https://github.com/$($env:GITHUB_REPOSITORY)/releases/download/$($env:TAG)/$($env:ZIP_NAME)"
+          $body = "$notes`n`n<!-- app-notes-end -->`n---`n**Download ZIP:** $download"
+          Set-Content -Path release_notes.md -Value $body -Encoding utf8
+          Get-Content release_notes.md
 
       # ==========================
       # GitHub Release + Upload ZIP
@@ -131,11 +150,9 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           name: ${{ env.RELEASE_NAME }}
-          body: |
-            ${{ steps.notes.outputs.body }}
-
-            **Download ZIP**
-            https://github.com/${{ github.repository }}/releases/download/${{ env.TAG }}/${{ env.ZIP_NAME }}
+          # beta builds are pre-releases, so the app only offers them to people who opt in
+          prerelease: ${{ env.CHANNEL == 'beta' }}
+          body_path: release_notes.md
           files: |
             ${{ env.ZIP_NAME }}
           overwrite_files: true

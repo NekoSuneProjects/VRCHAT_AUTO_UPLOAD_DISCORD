@@ -5,7 +5,7 @@
     <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>VRCX_Image_Discord_Uploader</RootNamespace>
     <AssemblyName>VRCX Image Discord Uploader</AssemblyName>
-    <Version>2.1.0</Version>
+    <Version>2.2.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <UseWPF>true</UseWPF>
@@ -26,6 +26,8 @@
   <ItemGroup>
     <Resource Include="app.ico" />
     <Resource Include="logo.png" />
+    <!-- shown in the app's "What's new" after an update -->
+    <EmbeddedResource Include="..\CHANGELOG.md" Link="CHANGELOG.md" LogicalName="CHANGELOG.md" />
   </ItemGroup>
 
 

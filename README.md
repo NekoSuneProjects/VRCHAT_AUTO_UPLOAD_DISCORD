@@ -26,6 +26,16 @@ All Nekumi destinations use the same upload URL: `https://nekumi.nekosunevr.co.u
 Leave your old `.env` next to the new exe on first launch and it is imported automatically as a destination,
 or use **Data → Import old .env…**. Settings from 2.0 are upgraded automatically. After that the `.env` is not needed any more.
 
+### Updating
+The app checks [GitHub releases](https://github.com/NekoSuneProjects/VRCHAT_AUTO_UPLOAD_DISCORD/releases) and shows a banner when a new version is out.
+Press **Update now** – it downloads the new version, restarts and keeps all your settings.
+Want to test new things early? Turn on **Settings → Updates → Include beta versions**.
+**What's new** shows the changes since your version before you update, and again right after updating.
+
+### Releasing (maintainers)
+Add a `## <version>` section at the top of [CHANGELOG.md](CHANGELOG.md) and bump `<Version>` in the `.csproj`.
+CI copies that section into the GitHub release description, which is what the in-app updater shows.
+
 ### Where is my data?
 `%APPDATA%\NekoSuneVR\VRCX Image Discord Uploader`
 

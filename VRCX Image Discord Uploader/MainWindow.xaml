@@ -171,8 +171,26 @@
                         </StackPanel>
                     </Grid>
 
+                    <StackPanel Grid.Row="1">
+                    <!-- Update available -->
+                    <Border x:Name="UpdateBanner" Margin="0,18,0,0" Padding="16,12" CornerRadius="10"
+                            Background="{StaticResource AccentSoft}" BorderBrush="{StaticResource Accent}" BorderThickness="1" Visibility="Collapsed">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Center">
+                                <Button Style="{StaticResource Ghost}" Content="Skip" Click="UpdateSkip_Click" Margin="0,0,6,0" ToolTip="Hide until a newer version"/>
+                                <Button Content="What's new" Click="UpdateNotes_Click" Padding="12,6" Margin="0,0,8,0"/>
+                                <Button x:Name="UpdateNowButton" Style="{StaticResource Primary}" Content="Update now" Click="UpdateNow_Click" Padding="14,6"/>
+                            </StackPanel>
+                            <TextBlock Style="{StaticResource Icon}" Text="&#xE896;" Foreground="{StaticResource Text}" Margin="0,0,12,0"/>
+                            <StackPanel VerticalAlignment="Center">
+                                <TextBlock x:Name="UpdateTitle" FontWeight="SemiBold" Foreground="{StaticResource Text}" Text="Update available"/>
+                                <TextBlock x:Name="UpdateSub" Style="{StaticResource Muted}" TextWrapping="NoWrap" TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </DockPanel>
+                    </Border>
+
                     <!-- Setup warning -->
-                    <Border x:Name="SetupBanner" Grid.Row="1" Margin="0,18,0,0" Padding="16,12" CornerRadius="10"
+                    <Border x:Name="SetupBanner" Margin="0,18,0,0" Padding="16,12" CornerRadius="10"
                             Background="#1FF59E0B" BorderBrush="#66F59E0B" BorderThickness="1" Visibility="Collapsed">
                         <DockPanel>
                             <Button DockPanel.Dock="Right" Content="Open settings" Click="GoSettings_Click" Padding="12,6"/>
@@ -181,6 +199,7 @@
                                        Text="Finish setup: add an upload destination and your screenshot folder."/>
                         </DockPanel>
                     </Border>
+                    </StackPanel>
 
                     <!-- Stat cards -->
                     <UniformGrid Grid.Row="2" Columns="4" Margin="-6,18,-6,6">
@@ -351,6 +370,21 @@
                                     <CheckBox x:Name="NotifyCheck" Style="{StaticResource Toggle}" Content="Show a notification after each upload"/>
                                 </StackPanel>
                             </Border>
+
+                            <Border Style="{StaticResource CardBox}">
+                                <StackPanel>
+                                    <TextBlock Text="Updates" Style="{StaticResource H2}"/>
+                                    <TextBlock x:Name="CurrentVersionText" Style="{StaticResource Muted}" Text="You have v2.1.0"/>
+                                    <CheckBox x:Name="UpdateCheck" Style="{StaticResource Toggle}" Margin="0,12,0,7" Content="Check for updates automatically"/>
+                                    <CheckBox x:Name="BetaCheck" Style="{StaticResource Toggle}" Content="Include beta versions (newer, may have bugs)"/>
+                                    <DockPanel Margin="0,10,0,0">
+                                        <Button DockPanel.Dock="Left" Content="Check now" Click="CheckUpdates_Click" Margin="0,0,12,0"/>
+                                        <Button DockPanel.Dock="Left" Style="{StaticResource Ghost}" Content="Changelog" Click="ShowChangelog_Click" Margin="0,0,4,0"/>
+                                        <Button DockPanel.Dock="Left" Style="{StaticResource Ghost}" Content="All releases ↗" Click="OpenReleases_Click" Margin="0,0,12,0"/>
+                                        <TextBlock x:Name="UpdateStatus" Style="{StaticResource Muted}" VerticalAlignment="Center"/>
+                                    </DockPanel>
+                                </StackPanel>
+                            </Border>
                         </StackPanel>
                     </ScrollViewer>
 
@@ -460,6 +494,31 @@
                         Opacity="0" IsHitTestVisible="False">
                     <TextBlock x:Name="ToastText" FontWeight="SemiBold"/>
                 </Border>
+
+                <!-- What's new / changelog -->
+                <Grid x:Name="WhatsNew" Grid.Row="1" Visibility="Collapsed" Background="#B30A0B10">
+                    <Border Width="620" MaxHeight="640" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Background="{StaticResource Card}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="14">
+                        <DockPanel>
+                            <StackPanel DockPanel.Dock="Top" Margin="24,20,24,12">
+                                <TextBlock x:Name="WnTitle" Text="What's new" Style="{StaticResource H2}" FontSize="20"/>
+                                <TextBlock x:Name="WnSub" Style="{StaticResource Muted}"/>
+                            </StackPanel>
+                            <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0" Padding="24,14">
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Left" Style="{StaticResource Ghost}" Content="Open on GitHub ↗" Click="WnGitHub_Click"/>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button x:Name="WnClose" Content="Close" Click="WnClose_Click" Margin="0,0,10,0"/>
+                                        <Button x:Name="WnUpdate" Style="{StaticResource Primary}" Content="Update now" Click="UpdateNow_Click" MinWidth="120"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="24,0,24,12">
+                                <StackPanel x:Name="WnNotes"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
 
                 <!-- Destination editor -->
                 <Grid x:Name="DestEditor" Grid.Row="1" Visibility="Collapsed" Background="#B30A0B10">
