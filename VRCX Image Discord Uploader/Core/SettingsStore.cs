@@ -39,7 +39,8 @@ public static class SettingsStore
             }
 
             var s = json.Deserialize<AppSettings>(Json.Options) ?? new AppSettings();
-            s.AuthKey = Unprotect(s.AuthKeyProtected);
+            UnprotectAll(s);
+            FixupKinds(s);
             if (version < AppSettings.CurrentSchema) Save(s);
             return s;
         }
@@ -66,7 +67,34 @@ public static class SettingsStore
                 case 0:
                     // v0 = unversioned file; nothing to rename yet, just stamp it.
                     break;
-                // case 1: json["NewName"] = json["OldName"]; json.Remove("OldName"); break;
+                case 1:
+                    // v1 had one bot: WebhookUrl/AuthKey/ServerId/ChannelId at the top.
+                    // v2 has a list of destinations (community + own servers, each with its own key).
+                    {
+                        var url = Str(json, "WebhookUrl");
+                        var keyProtected = Str(json, "AuthKeyProtected");
+                        var plainKey = Str(json, "AuthKey"); // present in exported v1 backups
+                        var list = new JsonArray();
+                        if (url.Length > 0 || keyProtected.Length > 0 || plainKey.Length > 0)
+                        {
+                            list.Add(new JsonObject
+                            {
+                                ["Id"] = LegacyId,
+                                ["Name"] = "My server",
+                                ["Kind"] = (int)(url.Contains("nekumi", StringComparison.OrdinalIgnoreCase) ? DestinationKind.OwnServer : DestinationKind.Custom),
+                                ["Url"] = url.Length > 0 ? url : UploadDestination.NekumiUploadUrl,
+                                ["Enabled"] = true,
+                                ["AuthKeyProtected"] = keyProtected,
+                                ["ServerId"] = Str(json, "ServerId"),
+                                ["ChannelId"] = Str(json, "ChannelId"),
+                            });
+                        }
+                        json["Destinations"] = list;
+                        foreach (var old in new[] { "WebhookUrl", "AuthKeyProtected", "ServerId", "ChannelId" })
+                            json.Remove(old);
+                    }
+                    break;
+                // case 2: json["NewName"] = json["OldName"]; json.Remove("OldName"); break;
             }
             Log.Info($"Migrated settings schema v{v} -> v{v + 1}");
         }
@@ -78,7 +106,7 @@ public static class SettingsStore
     {
         AppPaths.Ensure();
         s.SchemaVersion = AppSettings.CurrentSchema;
-        s.AuthKeyProtected = Protect(s.AuthKey);
+        foreach (var d in s.Destinations) d.AuthKeyProtected = Protect(d.AuthKey);
         WriteAtomic(AppPaths.SettingsFile, JsonSerializer.Serialize(s, Json.Options));
     }
 
@@ -88,8 +116,13 @@ public static class SettingsStore
     public static void Export(AppSettings s, string path)
     {
         var obj = JsonSerializer.SerializeToNode(s, Json.Options)!.AsObject();
-        obj.Remove("AuthKeyProtected");
-        obj["AuthKey"] = s.AuthKey;
+        var list = obj["Destinations"]!.AsArray();
+        for (int i = 0; i < list.Count; i++)
+        {
+            var d = list[i]!.AsObject();
+            d.Remove("AuthKeyProtected");
+            d["AuthKey"] = s.Destinations[i].AuthKey;
+        }
         obj["ExportedAt"] = DateTime.UtcNow.ToString("o");
         obj["History"] = JsonSerializer.SerializeToNode(UploadHistory.Instance.Snapshot(), Json.Options);
         File.WriteAllText(path, obj.ToJsonString(Json.Options));
@@ -101,13 +134,22 @@ public static class SettingsStore
                    ?? throw new InvalidDataException("This is not a backup file.");
         int version = GetInt(json, "SchemaVersion");
         var history = json["History"];
-        string key = json["AuthKey"] is JsonValue kv && kv.TryGetValue<string>(out var k) ? k : "";
         json.Remove("History");
-        json.Remove("AuthKey");
+        string legacyKey = Str(json, "AuthKey"); // v1 backups
         json = Migrate(json, version);
 
+        // plain keys in backups, by destination index
+        var plainKeys = (json["Destinations"] as JsonArray ?? new JsonArray())
+            .Select(n => n is JsonObject o ? Str(o, "AuthKey") : "").ToList();
+
         var s = json.Deserialize<AppSettings>(Json.Options) ?? new AppSettings();
-        s.AuthKey = !string.IsNullOrEmpty(key) ? key : Unprotect(s.AuthKeyProtected);
+        UnprotectAll(s);
+        for (int i = 0; i < s.Destinations.Count; i++)
+        {
+            if (i < plainKeys.Count && plainKeys[i].Length > 0) s.Destinations[i].AuthKey = plainKeys[i];
+            else if (s.Destinations[i].Id == LegacyId && legacyKey.Length > 0) s.Destinations[i].AuthKey = legacyKey;
+        }
+        FixupKinds(s);
 
         if (includeHistory && history is JsonArray arr)
             UploadHistory.Instance.ReplaceAll(arr.Deserialize<List<HistoryEntry>>(Json.Options) ?? new());
@@ -116,8 +158,10 @@ public static class SettingsStore
         return s;
     }
 
+    /// <summary>Reads an old 1.x .env and adds it as a destination (or updates the one with the same key).</summary>
     public static void ImportEnv(string path, AppSettings s)
     {
+        string url = "", key = "", server = "", channel = "";
         foreach (var raw in File.ReadAllLines(path))
         {
             var line = raw.Trim();
@@ -128,14 +172,52 @@ public static class SettingsStore
             var v = line[(eq + 1)..].Trim().Trim('"', '\'');
             switch (k)
             {
-                case "DISCORD_WEBHOOK_URL": s.WebhookUrl = v; break;
-                case "DISCORD_WEBHOOK_AUTHKEY": s.AuthKey = v; break;
-                case "SERVERID": s.ServerId = v; break;
-                case "CHANNELID": s.ChannelId = v; break;
-                case "VRCHAT_IMAGE_PATH": s.ScreenshotFolder = v; break;
+                case "DISCORD_WEBHOOK_URL": url = v; break;
+                case "DISCORD_WEBHOOK_AUTHKEY": key = v; break;
+                case "SERVERID": server = v; break;
+                case "CHANNELID": channel = v; break;
+                case "VRCHAT_IMAGE_PATH": if (v.Length > 0) s.ScreenshotFolder = v; break;
+            }
+        }
+        if (key.Length == 0 && url.Length == 0) return;
+
+        var d = s.Destinations.FirstOrDefault(x => x.AuthKey.Trim() == key.Trim() && key.Length > 0);
+        if (d == null)
+        {
+            d = new UploadDestination { Name = "My server" };
+            s.Destinations.Add(d);
+        }
+        d.Url = url.Length > 0 ? url : UploadDestination.NekumiUploadUrl;
+        d.AuthKey = key;
+        d.ServerId = server;
+        d.ChannelId = channel;
+        d.Kind = d.Url.Contains("nekumi", StringComparison.OrdinalIgnoreCase) ? DestinationKind.OwnServer : DestinationKind.Custom;
+        FixupKinds(s);
+    }
+
+    const string LegacyId = "legacy";
+
+    /// <summary>A community member key (nkvrm_) on the Nekumi URL is the NekoSune Community preset.</summary>
+    static void FixupKinds(AppSettings s)
+    {
+        foreach (var d in s.Destinations)
+        {
+            if (d.AuthKey.StartsWith("nkvrm_", StringComparison.Ordinal) && d.Kind != DestinationKind.Community
+                && d.Url.Contains("nekumi", StringComparison.OrdinalIgnoreCase))
+            {
+                d.Kind = DestinationKind.Community;
+                if (d.Name is "" or "My server") d.Name = UploadDestination.CommunityKey;
             }
         }
     }
+
+    static void UnprotectAll(AppSettings s)
+    {
+        foreach (var d in s.Destinations) d.AuthKey = Unprotect(d.AuthKeyProtected);
+    }
+
+    static string Str(JsonObject o, string key) =>
+        o[key] is JsonValue v && v.TryGetValue<string>(out var str) ? str : "";
 
     public static void ResetAll()
     {

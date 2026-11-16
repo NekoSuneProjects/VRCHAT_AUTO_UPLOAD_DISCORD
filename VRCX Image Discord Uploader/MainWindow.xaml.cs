@@ -247,14 +247,22 @@ public partial class MainWindow : Window
     {
         if (((FrameworkElement)s).Tag is not HistoryItem item) return;
         if (!File.Exists(item.Entry.FilePath)) { Toast("File no longer exists", error: true); return; }
-        await UploadManual(item.Entry.FilePath);
+
+        // Partly failed: only resend to the servers that failed (and still exist + are enabled).
+        IReadOnlyCollection<string>? only = null;
+        var failed = item.Entry.Results.Where(r => !r.Success).Select(r => r.DestinationId).ToList();
+        if (item.Entry.Results.Any(r => r.Success) && failed.Count > 0)
+            only = failed.Where(id => _settings.ActiveDestinations.Any(d => d.Id == id)).ToList();
+        if (only is { Count: 0 }) { Toast("The failed destinations are removed or disabled", error: true); return; }
+
+        await UploadManual(item.Entry.FilePath, only);
     }
 
-    async Task UploadManual(string path)
+    async Task UploadManual(string path, IReadOnlyCollection<string>? only = null)
     {
         _watcher.UpdateSettings(_settings);
         Toast("Uploading " + Path.GetFileName(path) + "…");
-        var r = await _watcher.UploadManualAsync(path);
+        var r = await _watcher.UploadManualAsync(path, only);
         if (r != null) Toast(r.Success ? "Uploaded!" : "Failed: " + r.Error, error: !r.Success);
     }
 
@@ -271,8 +279,7 @@ public partial class MainWindow : Window
 
     bool IsConfigured(out string reason, bool needFolder = true)
     {
-        if (string.IsNullOrWhiteSpace(_settings.WebhookUrl)) { reason = "Add your upload URL in Settings"; return false; }
-        if (string.IsNullOrWhiteSpace(_settings.AuthKey)) { reason = "Add your auth key in Settings"; return false; }
+        if (!_settings.ActiveDestinations.Any()) { reason = "Add an upload destination with a key in Settings"; return false; }
         if (needFolder && !Directory.Exists(_settings.ScreenshotFolder)) { reason = "Pick your VRChat screenshot folder in Settings"; return false; }
         reason = "";
         return true;
@@ -287,11 +294,7 @@ public partial class MainWindow : Window
 
     void LoadSettingsIntoUi()
     {
-        UrlBox.Text = _settings.WebhookUrl;
-        ServerBox.Text = _settings.ServerId;
-        ChannelBox.Text = _settings.ChannelId;
-        KeyBox.Password = _settings.AuthKey;
-        KeyPlain.Text = _settings.AuthKey;
+        RefreshDestinations();
         FolderBox.Text = _settings.ScreenshotFolder;
         SubfoldersCheck.IsChecked = _settings.IncludeSubfolders;
         MetadataCheck.IsChecked = _settings.UploadWithMetadata;
@@ -315,10 +318,6 @@ public partial class MainWindow : Window
         }
 
         var n = _settings.Clone();
-        n.WebhookUrl = UrlBox.Text.Trim();
-        n.ServerId = ServerBox.Text.Trim();
-        n.ChannelId = ChannelBox.Text.Trim();
-        n.AuthKey = (KeyPlain.Visibility == Visibility.Visible ? KeyPlain.Text : KeyBox.Password).Trim();
         n.ScreenshotFolder = folder;
         n.IncludeSubfolders = SubfoldersCheck.IsChecked == true;
         n.UploadWithMetadata = MetadataCheck.IsChecked == true;
@@ -365,11 +364,174 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog(this) == true) FolderBox.Text = dlg.FolderName;
     }
 
-    void RevealKey_Click(object s, RoutedEventArgs e)
+    // ================= Upload destinations =================
+
+    UploadDestination? _editing;   // copy being edited
+    bool _editingIsNew;
+
+    void RefreshDestinations()
     {
-        bool showing = KeyPlain.Visibility == Visibility.Visible;
-        if (showing) { KeyBox.Password = KeyPlain.Text; KeyPlain.Visibility = Visibility.Collapsed; KeyBox.Visibility = Visibility.Visible; RevealIcon.Text = ""; }
-        else { KeyPlain.Text = KeyBox.Password; KeyPlain.Visibility = Visibility.Visible; KeyBox.Visibility = Visibility.Collapsed; RevealIcon.Text = ""; }
+        DestList.ItemsSource = null;
+        DestList.ItemsSource = _settings.Destinations;
+        DestEmpty.Visibility = _settings.Destinations.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        AddCommunityButton.Visibility = _settings.Destinations.Any(d => d.Kind == DestinationKind.Community)
+            ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    void SaveDestinations(Action<AppSettings> change)
+    {
+        var n = _settings.Clone();
+        change(n);
+        ApplySettings(n);
+        RefreshDestinations();
+    }
+
+    void AddCommunity_Click(object s, RoutedEventArgs e) => OpenEditor(UploadDestination.NekoSuneCommunity(), isNew: true);
+
+    void AddOwn_Click(object s, RoutedEventArgs e)
+    {
+        int n = _settings.Destinations.Count(d => d.Kind == DestinationKind.OwnServer) + 1;
+        OpenEditor(new UploadDestination { Name = n == 1 ? "My server" : $"My server {n}", Kind = DestinationKind.OwnServer }, isNew: true);
+    }
+
+    void DestEdit_Click(object s, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)s).Tag is UploadDestination d) OpenEditor(d.Clone(), isNew: false);
+    }
+
+    void DestToggle_Click(object s, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)s).Tag is not UploadDestination d) return;
+        bool on = ((CheckBox)s).IsChecked == true;
+        SaveDestinations(n => n.Destinations.First(x => x.Id == d.Id).Enabled = on);
+        Toast(on ? $"Posting to {d.Name}" : $"Paused {d.Name}");
+    }
+
+    void DestDelete_Click(object s, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)s).Tag is not UploadDestination d) return;
+        if (MessageBox.Show(this, $"Remove \"{d.Name}\"? Its key is deleted from this PC (it keeps working on the server until you regenerate it).",
+                "Remove destination", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+        SaveDestinations(n => n.Destinations.RemoveAll(x => x.Id == d.Id));
+        Toast("Destination removed");
+    }
+
+    void OpenDashboard_Click(object s, RoutedEventArgs e) => OpenUrl(UploadDestination.NekumiDashboardUrl);
+
+    static void OpenUrl(string url)
+    {
+        try { Process.Start(new ProcessStartInfo(url) { UseShellExecute = true }); } catch { }
+    }
+
+    void OpenEditor(UploadDestination d, bool isNew)
+    {
+        _editing = d;
+        _editingIsNew = isNew;
+        EdTitle.Text = isNew
+            ? d.Kind == DestinationKind.Community ? "Add NekoSune Community" : "Add your server"
+            : "Edit " + d.Name;
+        EdHelp.Text = d.Kind switch
+        {
+            DestinationKind.Community =>
+                "1. Join the NekoSune Community Discord.\n2. Run /vrchatupload key there.\n3. Paste your personal key (starts with nkvrm_) below.\nNo NSFW – abusing uploads gets your key revoked.",
+            DestinationKind.OwnServer =>
+                "1. Invite Nekumi to your server.\n2. Open the Nekumi dashboard → your server → Integrations → VRChat.\n3. Create an integration for the channel you want and paste its key (starts with nkvrc_).\nEach key always posts to the channel it was made for.",
+            _ => "Any compatible upload URL. The key is sent as \"Authorization: Bearer <key>\".",
+        };
+        EdName.Text = d.Name;
+        EdKey.Password = d.AuthKey;
+        EdKeyPlain.Text = d.AuthKey;
+        EdUrl.Text = d.Url;
+        EdServer.Text = d.ServerId;
+        EdChannel.Text = d.ChannelId;
+        EdEnabled.IsChecked = d.Enabled;
+        EdLegacyPanel.Visibility = d.Kind == DestinationKind.Custom || d.Url.Contains("{serverId}", StringComparison.OrdinalIgnoreCase)
+            ? Visibility.Visible : Visibility.Collapsed;
+        EdStatus.Text = "";
+        UpdateKeyInfo();
+        DestEditor.Visibility = Visibility.Visible;
+        EdName.Focus();
+    }
+
+    string EditorKey => (EdKeyPlain.Visibility == Visibility.Visible ? EdKeyPlain.Text : EdKey.Password).Trim();
+
+    void EdKey_Changed(object s, RoutedEventArgs e) => UpdateKeyInfo();
+
+    void UpdateKeyInfo()
+    {
+        if (_editing == null || EdKeyInfo == null) return;
+        var key = EditorKey;
+        var kind = UploadDestination.DescribeKey(key);
+        string warn = "";
+        if (_editing.Kind == DestinationKind.Community && key.StartsWith("nkvrc_")) warn = " – this looks like a server key, community needs your /vrchatupload key (nkvrm_)";
+        if (_editing.Kind == DestinationKind.OwnServer && key.StartsWith("nkvrm_")) warn = " – this is a community member key, not a server integration key (nkvrc_)";
+        EdKeyInfo.Text = key.Length == 0 ? "Paste the key here. It is encrypted before it is saved." : kind + warn;
+        EdKeyInfo.Foreground = (Brush)FindResource(warn.Length > 0 ? "Warning" : "TextMuted");
+    }
+
+    void EdReveal_Click(object s, RoutedEventArgs e)
+    {
+        bool showing = EdKeyPlain.Visibility == Visibility.Visible;
+        if (showing) { EdKey.Password = EdKeyPlain.Text; EdKeyPlain.Visibility = Visibility.Collapsed; EdKey.Visibility = Visibility.Visible; EdRevealIcon.Text = "\uE890"; }
+        else { EdKeyPlain.Text = EdKey.Password; EdKeyPlain.Visibility = Visibility.Visible; EdKey.Visibility = Visibility.Collapsed; EdRevealIcon.Text = "\uED1A"; }
+    }
+
+    void EdUrlReset_Click(object s, RoutedEventArgs e) => EdUrl.Text = UploadDestination.NekumiUploadUrl;
+
+    UploadDestination? ReadEditor(out string error)
+    {
+        error = "";
+        if (_editing == null) return null;
+        var d = _editing.Clone();
+        d.Name = EdName.Text.Trim();
+        d.AuthKey = EditorKey;
+        d.Url = EdUrl.Text.Trim();
+        d.ServerId = EdServer.Text.Trim();
+        d.ChannelId = EdChannel.Text.Trim();
+        d.Enabled = EdEnabled.IsChecked == true;
+        if (d.Name.Length == 0) error = "Give it a name.";
+        else if (!Uri.TryCreate(d.ResolveUrl(), UriKind.Absolute, out var u) || (u.Scheme != "https" && u.Scheme != "http")) error = "The upload URL isn't valid.";
+        else if (d.AuthKey.Length == 0) error = "Paste the key.";
+        else if (_settings.Destinations.Any(x => x.Id != d.Id && x.AuthKey.Trim() == d.AuthKey)) error = "Another destination already uses this key.";
+        return d;
+    }
+
+    void DestSave_Click(object s, RoutedEventArgs e)
+    {
+        var d = ReadEditor(out var error);
+        if (d == null) return;
+        if (error.Length > 0)
+        {
+            EdStatus.Foreground = (Brush)FindResource("Danger");
+            EdStatus.Text = error;
+            return;
+        }
+        SaveDestinations(n =>
+        {
+            int i = n.Destinations.FindIndex(x => x.Id == d.Id);
+            if (i >= 0) n.Destinations[i] = d; else n.Destinations.Add(d);
+        });
+        DestEditor.Visibility = Visibility.Collapsed;
+        _editing = null;
+        Toast(_editingIsNew ? $"{d.Name} added" : $"{d.Name} saved");
+    }
+
+    void DestCancel_Click(object s, RoutedEventArgs e)
+    {
+        DestEditor.Visibility = Visibility.Collapsed;
+        _editing = null;
+    }
+
+    async void DestCheck_Click(object s, RoutedEventArgs e)
+    {
+        var d = ReadEditor(out _);
+        if (d == null) return;
+        EdStatus.Foreground = (Brush)FindResource("TextMuted");
+        EdStatus.Text = "Checking…";
+        var r = await DiscordUploader.CheckAsync(d);
+        EdStatus.Foreground = (Brush)FindResource(r.Success ? "Success" : "Danger");
+        EdStatus.Text = (r.Success ? "✓ " : "✗ ") + r.Message
+            + (r.Success && d.AuthKey.Length > 0 ? " The key itself is checked on the first upload." : "");
     }
 
     void Settle_Changed(object s, RoutedPropertyChangedEventArgs<double> e)

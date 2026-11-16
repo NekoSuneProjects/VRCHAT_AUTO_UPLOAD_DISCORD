@@ -10,6 +10,7 @@ public class ScreenshotInfo
 {
     public string WorldName { get; set; } = "";
     public string WorldId { get; set; } = "";
+    public string InstanceId { get; set; } = "";
     public List<Player> Players { get; } = new();
     public string Source { get; set; } = "none";
     public bool HasWorld => !string.IsNullOrEmpty(WorldId) || !string.IsNullOrEmpty(WorldName);
@@ -101,12 +102,11 @@ public static partial class ScreenshotMetadata
 
             info.WorldName = Str(world, "name");
             info.WorldId = Str(world, "id");
-            if (string.IsNullOrEmpty(info.WorldId))
-            {
-                var inst = Str(world, "instanceId");
-                int c = inst.IndexOf(':');
-                info.WorldId = c > 0 ? inst[..c] : inst;
-            }
+            // VRCX: "instanceId": "wrld_xxx:12345~friends(usr_...)"
+            var inst = Str(world, "instanceId");
+            int c = inst.IndexOf(':');
+            if (string.IsNullOrEmpty(info.WorldId)) info.WorldId = c > 0 ? inst[..c] : inst;
+            if (c > 0) info.InstanceId = SafeInstance(inst[(c + 1)..]);
 
             if (j["players"] is JsonArray players)
                 foreach (var p in players.OfType<JsonObject>())
@@ -118,6 +118,24 @@ public static partial class ScreenshotMetadata
             return info.HasWorld;
         }
         catch { return false; }
+    }
+
+    /// <summary>
+    /// "12345~private(usr_x)~canRequestInvite~region(eu)~nonce(secret)" -> "12345~private~canRequestInvite~region(eu)".
+    /// The nonce would let anyone join a private instance, and owner IDs aren't needed in a public post.
+    /// </summary>
+    public static string SafeInstance(string instance)
+    {
+        var parts = instance.Split('~', StringSplitOptions.RemoveEmptyEntries);
+        var keep = new List<string>();
+        foreach (var p in parts)
+        {
+            int paren = p.IndexOf('(');
+            var name = paren >= 0 ? p[..paren] : p;
+            if (name.Equals("nonce", StringComparison.OrdinalIgnoreCase)) continue;
+            keep.Add(name.Equals("region", StringComparison.OrdinalIgnoreCase) ? p : name);
+        }
+        return string.Join("~", keep);
     }
 
     static string Str(JsonObject o, string key) =>

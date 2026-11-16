@@ -140,7 +140,7 @@ public sealed class ScreenshotWatcher : IDisposable
                 foreach (var kv in ready)
                 {
                     if (!_pending.TryRemove(kv.Key, out var p)) continue;
-                    await ProcessAsync(kv.Key, p.Dir, null, ct);
+                    await ProcessAsync(kv.Key, p.Dir, null, null, ct);
                 }
             }
             catch (OperationCanceledException) { }
@@ -148,11 +148,14 @@ public sealed class ScreenshotWatcher : IDisposable
         }
     }
 
-    /// <summary>Upload a specific file by hand (from the dashboard), even if it was uploaded before.</summary>
-    public Task<HistoryEntry?> UploadManualAsync(string path) =>
-        ProcessAsync(ScreenshotMetadata.GetBaseName(path), Path.GetDirectoryName(path)!, path, CancellationToken.None);
+    /// <summary>
+    /// Upload a specific file by hand (from the dashboard), even if it was uploaded before.
+    /// onlyDestinationIds limits it to some destinations (retrying the ones that failed).
+    /// </summary>
+    public Task<HistoryEntry?> UploadManualAsync(string path, IReadOnlyCollection<string>? onlyDestinationIds = null) =>
+        ProcessAsync(ScreenshotMetadata.GetBaseName(path), Path.GetDirectoryName(path)!, path, onlyDestinationIds, CancellationToken.None);
 
-    async Task<HistoryEntry?> ProcessAsync(string baseName, string dir, string? explicitPath, CancellationToken ct)
+    async Task<HistoryEntry?> ProcessAsync(string baseName, string dir, string? explicitPath, IReadOnlyCollection<string>? onlyIds, CancellationToken ct)
     {
         lock (_inFlight) if (!_inFlight.Add(baseName)) return null;
         await _uploadLock.WaitAsync(ct);
@@ -193,27 +196,44 @@ public sealed class ScreenshotWatcher : IDisposable
                 : $"Uploading {Path.GetFileName(finalPath)} – no world info found");
             Activity?.Invoke("Uploading " + Path.GetFileName(finalPath));
 
-            var payload = DiscordUploader.BuildPayload(info, _settings.IncludePlayers);
-            var result = await DiscordUploader.UploadAsync(_settings, bytes, Path.GetFileName(finalPath), payload, ct);
+            var targets = _settings.ActiveDestinations
+                .Where(d => onlyIds == null || onlyIds.Contains(d.Id))
+                .ToList();
+            if (targets.Count == 0)
+            {
+                Log.Warn("No enabled upload destination with a key – add one in Settings → Upload destinations.");
+                Activity?.Invoke("No upload destination set up");
+                return null;
+            }
 
+            var payload = DiscordUploader.BuildPayload(info, _settings.IncludePlayers);
+            var fileName = Path.GetFileName(finalPath);
+            var results = new List<DestinationResult>();
+            foreach (var d in targets)
+            {
+                var r = await DiscordUploader.UploadAsync(d, bytes, fileName, payload, ct);
+                results.Add(new DestinationResult { DestinationId = d.Id, Name = d.Name, Success = r.Success, Error = r.Success ? "" : r.Message });
+                if (r.Success) Log.Success($"Uploaded {fileName} → {d.Name}");
+                else Log.Error($"Upload to {d.Name} failed for {fileName}: {r.Message}");
+            }
+
+            bool ok = results.All(r => r.Success);
             var entry = new HistoryEntry
             {
                 BaseName = baseName,
                 FilePath = finalPath,
                 Time = DateTime.Now,
-                Success = result.Success,
+                Success = ok,
                 WorldName = info.WorldName,
                 WorldId = info.WorldId,
                 PlayerCount = info.Players.Count,
-                Error = result.Success ? "" : result.Message,
+                Results = results,
+                Error = ok ? "" : string.Join("; ", results.Where(r => !r.Success).Select(r => $"{r.Name}: {r.Error}")),
             };
             UploadHistory.Instance.Add(entry);
 
-            if (result.Success) Log.Success($"Uploaded {Path.GetFileName(finalPath)}");
-            else Log.Error($"Upload failed for {Path.GetFileName(finalPath)}: {result.Message}");
-
             Processed?.Invoke(entry);
-            Activity?.Invoke(result.Success ? "Idle" : "Last upload failed");
+            Activity?.Invoke(ok ? "Idle" : "Last upload failed");
             return entry;
         }
         catch (OperationCanceledException) { return null; }

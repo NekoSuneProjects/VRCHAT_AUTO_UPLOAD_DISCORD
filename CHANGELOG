@@ -1,3 +1,22 @@
+# 2.1.0
+
+## New
+- Nekumi support: https://nekumi.nekosunevr.co.uk/integration/vrchat/v1/upload
+- Multiple upload destinations – every photo is posted to each enabled one, each with its own key:
+  - **NekoSune Community** (NEKOSUNECOMMUNITY) – personal key from `/vrchatupload key`
+  - **Your own servers** – one key per server/channel from the Nekumi dashboard → Integrations → VRChat
+  - Custom URLs (old bot / self-hosted) still work
+- Destination editor with key-type check (nkvrm_ community vs nkvrc_ server), enable/pause per server and a connection check
+- Upload history shows the result per server; retry only resends to the servers that failed
+- Sends worldId + instanceId (Nekumi shows them in the post)
+
+## Privacy
+- Instance info is cleaned before posting: the instance nonce and owner IDs are removed, so a posted photo can't be used to join a private instance
+
+## Changed
+- Settings format v2 (old single URL/key is moved into a "My server" destination automatically; a backup is kept)
+- Server ID / Channel ID only shown for old-style URLs
+
 # 2.0.0
 
 ## New

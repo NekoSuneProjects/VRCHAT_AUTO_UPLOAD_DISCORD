@@ -33,7 +33,7 @@
                     <StackPanel Grid.Column="1" Margin="14,0" VerticalAlignment="Center">
                         <TextBlock Text="{Binding Entry.WorldText}" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                         <TextBlock Text="{Binding Entry.FileName}" Style="{StaticResource Muted}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,2,0,0"/>
-                        <TextBlock Text="{Binding Entry.Detail}" Style="{StaticResource Muted}" Foreground="{StaticResource TextDim}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,2,0,0"/>
+                        <TextBlock Text="{Binding Entry.Detail}" Style="{StaticResource Muted}" Foreground="{StaticResource TextDim}" TextTrimming="CharacterEllipsis" TextWrapping="NoWrap" Margin="0,2,0,0" ToolTip="{Binding Entry.Error}"/>
                     </StackPanel>
                     <StackPanel Grid.Column="2" VerticalAlignment="Center" HorizontalAlignment="Right">
                         <Border x:Name="badge" CornerRadius="10" Padding="10,3" HorizontalAlignment="Right" Background="{StaticResource SuccessSoft}">
@@ -41,7 +41,7 @@
                         </Border>
                         <TextBlock Text="{Binding Entry.TimeText}" Style="{StaticResource Muted}" HorizontalAlignment="Right" Margin="0,6,0,0"/>
                         <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,4,0,0">
-                            <Button Style="{StaticResource Ghost}" ToolTip="Upload again" Click="Retry_Click" Tag="{Binding}">
+                            <Button Style="{StaticResource Ghost}" ToolTip="Upload again (only to the failed servers if some failed)" Click="Retry_Click" Tag="{Binding}">
                                 <TextBlock Style="{StaticResource Icon}" FontSize="13" Text="&#xE72C;"/>
                             </Button>
                             <Button Style="{StaticResource Ghost}" ToolTip="Show in folder" Click="ShowInFolder_Click" Tag="{Binding}">
@@ -106,7 +106,7 @@
                                 <Ellipse x:Name="SideDot" Width="8" Height="8" Fill="{StaticResource TextDim}" VerticalAlignment="Center"/>
                                 <TextBlock x:Name="SideStatus" Text="Stopped" Margin="8,0,0,0" FontSize="12.5" FontWeight="SemiBold"/>
                             </StackPanel>
-                            <TextBlock x:Name="VersionText" Text="v2.0.0" Style="{StaticResource Muted}" FontSize="11" Margin="0,4,0,0"/>
+                            <TextBlock x:Name="VersionText" Text="v2.1.0" Style="{StaticResource Muted}" FontSize="11" Margin="0,4,0,0"/>
                         </StackPanel>
                     </Border>
 
@@ -178,7 +178,7 @@
                             <Button DockPanel.Dock="Right" Content="Open settings" Click="GoSettings_Click" Padding="12,6"/>
                             <TextBlock Style="{StaticResource Icon}" Text="&#xE7BA;" Foreground="{StaticResource Warning}" Margin="0,0,12,0"/>
                             <TextBlock x:Name="SetupBannerText" VerticalAlignment="Center" TextWrapping="Wrap" Foreground="#FCD34D"
-                                       Text="Finish setup: add your upload URL, auth key and screenshot folder."/>
+                                       Text="Finish setup: add an upload destination and your screenshot folder."/>
                         </DockPanel>
                     </Border>
 
@@ -241,42 +241,77 @@
 
                             <Border Style="{StaticResource CardBox}">
                                 <StackPanel>
-                                    <TextBlock Text="Discord bot" Style="{StaticResource H2}"/>
-                                    <TextBlock Style="{StaticResource Muted}" Text="Use /show-token-key in your channel to get your auth key. If it leaks, run /regenerate-key."/>
+                                    <TextBlock Text="Upload destinations" Style="{StaticResource H2}"/>
+                                    <TextBlock Style="{StaticResource Muted}"
+                                               Text="Every photo is posted to each enabled destination. Each key is tied to one Discord server and channel, so add one per server."/>
 
-                                    <TextBlock Text="Upload URL" Style="{StaticResource Label}"/>
-                                    <TextBox x:Name="UrlBox" ToolTip="The bot's upload URL (DISCORD_WEBHOOK_URL in the old .env). {serverId} and {channelId} are replaced automatically."/>
+                                    <ItemsControl x:Name="DestList" Margin="0,14,0,0">
+                                        <ItemsControl.ItemTemplate>
+                                            <DataTemplate>
+                                                <Border x:Name="drow" Background="{StaticResource Input}" BorderBrush="{StaticResource Border}" BorderThickness="1"
+                                                        CornerRadius="10" Padding="14,10" Margin="0,0,0,8">
+                                                    <Grid>
+                                                        <Grid.ColumnDefinitions>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                            <ColumnDefinition Width="*"/>
+                                                            <ColumnDefinition Width="Auto"/>
+                                                        </Grid.ColumnDefinitions>
+                                                        <Border Width="38" Height="38" CornerRadius="9" Background="{StaticResource AccentSoft}">
+                                                            <TextBlock x:Name="dicon" Style="{StaticResource Icon}" Text="&#xE716;" HorizontalAlignment="Center" Foreground="{StaticResource Text}"/>
+                                                        </Border>
+                                                        <StackPanel Grid.Column="1" Margin="12,0" VerticalAlignment="Center">
+                                                            <StackPanel Orientation="Horizontal">
+                                                                <TextBlock Text="{Binding Name}" FontWeight="SemiBold" FontSize="14" TextTrimming="CharacterEllipsis"/>
+                                                                <Border CornerRadius="8" Padding="8,1" Margin="8,0,0,0" Background="#14FFFFFF" VerticalAlignment="Center">
+                                                                    <TextBlock Text="{Binding KindText}" FontSize="11" Foreground="{StaticResource TextMuted}"/>
+                                                                </Border>
+                                                            </StackPanel>
+                                                            <TextBlock Text="{Binding KeyHint}" Style="{StaticResource Muted}" FontFamily="Cascadia Mono, Consolas" Margin="0,3,0,0"/>
+                                                        </StackPanel>
+                                                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                                                            <CheckBox Style="{StaticResource Toggle}" Margin="0,0,6,0" IsChecked="{Binding Enabled, Mode=OneWay}"
+                                                                      Click="DestToggle_Click" Tag="{Binding}" ToolTip="Post here"/>
+                                                            <Button Style="{StaticResource Ghost}" Click="DestEdit_Click" Tag="{Binding}" ToolTip="Edit">
+                                                                <TextBlock Style="{StaticResource Icon}" FontSize="14" Text="&#xE70F;"/>
+                                                            </Button>
+                                                            <Button Style="{StaticResource Ghost}" Click="DestDelete_Click" Tag="{Binding}" ToolTip="Remove">
+                                                                <TextBlock Style="{StaticResource Icon}" FontSize="14" Text="&#xE74D;"/>
+                                                            </Button>
+                                                        </StackPanel>
+                                                    </Grid>
+                                                </Border>
+                                                <DataTemplate.Triggers>
+                                                    <DataTrigger Binding="{Binding Kind}" Value="OwnServer">
+                                                        <Setter TargetName="dicon" Property="Text" Value="&#xE80F;"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Kind}" Value="Custom">
+                                                        <Setter TargetName="dicon" Property="Text" Value="&#xE71B;"/>
+                                                    </DataTrigger>
+                                                    <DataTrigger Binding="{Binding Enabled}" Value="False">
+                                                        <Setter TargetName="drow" Property="Opacity" Value="0.55"/>
+                                                    </DataTrigger>
+                                                </DataTemplate.Triggers>
+                                            </DataTemplate>
+                                        </ItemsControl.ItemTemplate>
+                                    </ItemsControl>
+                                    <TextBlock x:Name="DestEmpty" Style="{StaticResource Muted}" Margin="0,4,0,8"
+                                               Text="No destinations yet – add the NekoSune Community or your own server."/>
 
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition/>
-                                            <ColumnDefinition Width="16"/>
-                                            <ColumnDefinition/>
-                                        </Grid.ColumnDefinitions>
-                                        <StackPanel>
-                                            <TextBlock Text="Server ID" Style="{StaticResource Label}"/>
-                                            <TextBox x:Name="ServerBox"/>
-                                        </StackPanel>
-                                        <StackPanel Grid.Column="2">
-                                            <TextBlock Text="Channel ID" Style="{StaticResource Label}"/>
-                                            <TextBox x:Name="ChannelBox"/>
-                                        </StackPanel>
-                                    </Grid>
-
-                                    <TextBlock Text="Auth key" Style="{StaticResource Label}"/>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition/>
-                                            <ColumnDefinition Width="Auto"/>
-                                        </Grid.ColumnDefinitions>
-                                        <PasswordBox x:Name="KeyBox"/>
-                                        <TextBox x:Name="KeyPlain" Visibility="Collapsed"/>
-                                        <Button Grid.Column="1" Style="{StaticResource Ghost}" Margin="6,0,0,0" Click="RevealKey_Click" ToolTip="Show / hide">
-                                            <TextBlock x:Name="RevealIcon" Style="{StaticResource Icon}" Text="&#xE890;"/>
+                                    <WrapPanel Margin="0,6,0,0">
+                                        <Button x:Name="AddCommunityButton" Style="{StaticResource Primary}" Click="AddCommunity_Click" Margin="0,0,10,8">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Style="{StaticResource Icon}" FontSize="14" Text="&#xE716;"/>
+                                                <TextBlock Text="Add NekoSune Community" Margin="8,0,0,0"/>
+                                            </StackPanel>
                                         </Button>
-                                    </Grid>
-                                    <TextBlock Style="{StaticResource Muted}" Foreground="{StaticResource TextDim}" Margin="0,6,0,0"
-                                               Text="The key is encrypted with your Windows account before it is saved."/>
+                                        <Button Click="AddOwn_Click" Margin="0,0,10,8">
+                                            <StackPanel Orientation="Horizontal">
+                                                <TextBlock Style="{StaticResource Icon}" FontSize="14" Text="&#xE710;"/>
+                                                <TextBlock Text="Add my own server" Margin="8,0,0,0"/>
+                                            </StackPanel>
+                                        </Button>
+                                        <Button Style="{StaticResource Ghost}" Click="OpenDashboard_Click" Margin="0,0,0,8" Content="Open Nekumi dashboard ↗"/>
+                                    </WrapPanel>
                                 </StackPanel>
                             </Border>
 
@@ -425,6 +460,82 @@
                         Opacity="0" IsHitTestVisible="False">
                     <TextBlock x:Name="ToastText" FontWeight="SemiBold"/>
                 </Border>
+
+                <!-- Destination editor -->
+                <Grid x:Name="DestEditor" Grid.Row="1" Visibility="Collapsed" Background="#B30A0B10">
+                    <Border Width="540" MaxHeight="660" VerticalAlignment="Center" HorizontalAlignment="Center"
+                            Background="{StaticResource Card}" BorderBrush="{StaticResource Border}" BorderThickness="1" CornerRadius="14">
+                        <DockPanel>
+                            <Border DockPanel.Dock="Bottom" BorderBrush="{StaticResource Border}" BorderThickness="0,1,0,0" Padding="22,14">
+                                <DockPanel>
+                                    <Button DockPanel.Dock="Left" Content="Check connection" Click="DestCheck_Click"/>
+                                    <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                        <Button Content="Cancel" Click="DestCancel_Click" Margin="0,0,10,0"/>
+                                        <Button Style="{StaticResource Primary}" Content="Save" Click="DestSave_Click" MinWidth="100"/>
+                                    </StackPanel>
+                                </DockPanel>
+                            </Border>
+                            <ScrollViewer VerticalScrollBarVisibility="Auto" Padding="22,20,22,10">
+                                <StackPanel>
+                                    <TextBlock x:Name="EdTitle" Text="Add destination" Style="{StaticResource H2}" FontSize="18"/>
+                                    <Border Background="{StaticResource AccentSoft}" CornerRadius="10" Padding="14,10" Margin="0,10,0,4">
+                                        <TextBlock x:Name="EdHelp" TextWrapping="Wrap" FontSize="12.5" Foreground="{StaticResource Text}"/>
+                                    </Border>
+
+                                    <TextBlock Text="Name" Style="{StaticResource Label}"/>
+                                    <TextBox x:Name="EdName"/>
+
+                                    <TextBlock Text="Key" Style="{StaticResource Label}"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <PasswordBox x:Name="EdKey" PasswordChanged="EdKey_Changed"/>
+                                        <TextBox x:Name="EdKeyPlain" Visibility="Collapsed" TextChanged="EdKey_Changed"/>
+                                        <Button Grid.Column="1" Style="{StaticResource Ghost}" Margin="6,0,0,0" Click="EdReveal_Click" ToolTip="Show / hide">
+                                            <TextBlock x:Name="EdRevealIcon" Style="{StaticResource Icon}" Text="&#xE890;"/>
+                                        </Button>
+                                    </Grid>
+                                    <TextBlock x:Name="EdKeyInfo" Style="{StaticResource Muted}" Margin="0,6,0,0"/>
+
+                                    <TextBlock Text="Upload URL" Style="{StaticResource Label}"/>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <TextBox x:Name="EdUrl"/>
+                                        <Button Grid.Column="1" Content="Nekumi" Margin="8,0,0,0" Click="EdUrlReset_Click" ToolTip="Use the Nekumi upload URL"/>
+                                    </Grid>
+
+                                    <StackPanel x:Name="EdLegacyPanel">
+                                        <TextBlock Style="{StaticResource Muted}" Foreground="{StaticResource TextDim}" Margin="0,8,0,0"
+                                                   Text="Only for old-style URLs containing {serverId} / {channelId}."/>
+                                        <Grid>
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition/>
+                                                <ColumnDefinition Width="16"/>
+                                                <ColumnDefinition/>
+                                            </Grid.ColumnDefinitions>
+                                            <StackPanel>
+                                                <TextBlock Text="Server ID" Style="{StaticResource Label}"/>
+                                                <TextBox x:Name="EdServer"/>
+                                            </StackPanel>
+                                            <StackPanel Grid.Column="2">
+                                                <TextBlock Text="Channel ID" Style="{StaticResource Label}"/>
+                                                <TextBox x:Name="EdChannel"/>
+                                            </StackPanel>
+                                        </Grid>
+                                    </StackPanel>
+
+                                    <CheckBox x:Name="EdEnabled" Style="{StaticResource Toggle}" Margin="0,16,0,4" Content="Post screenshots here"/>
+                                    <TextBlock x:Name="EdStatus" Style="{StaticResource Muted}" FontWeight="SemiBold" Margin="0,6,0,4"/>
+                                </StackPanel>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Grid>
             </Grid>
         </Grid>
     </Border>

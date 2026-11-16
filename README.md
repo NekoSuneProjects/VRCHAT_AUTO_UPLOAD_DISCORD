@@ -13,20 +13,18 @@ Automaticly Uploads Photos to your VRChat
 ![IMAGE HERE SETTINGS](https://cdn.discordapp.com/attachments/1163195342754435193/1250768960912363592/image.png?ex=666c24de&is=666ad35e&hm=1bd2232e598e6ccea6775733a89d558b10d09942bcf1dcda5f8913126a34247e&)
 
 1. Download [Latest Files](https://github.com/NekoSuneProjects/VRCHAT_AUTO_UPLOAD_DISCORD/releases/latest)
-2. Invite [My Discord BOT](https://discord.com/oauth2/authorize?client_id=1390664793345757204) For this Work
-3. Make Text Channel or use Current Channel
-4. Run `VRCX Image Discord Uploader.exe`
-5. Open **Settings** and fill in:
-    - **Upload URL** – the bot upload URL (`DISCORD_WEBHOOK_URL` from the old .env)
-    - **Server ID** / **Channel ID** – your Discord server + channel
-    - **Auth key** – from `/show-token-key`
-    - **Screenshot folder** – e.g. `C:\Users\USERNAME\Pictures\VRChat`
-6. Press **Save**, then **Start watching** on the Dashboard
-7. Take photos in VRChat – they upload automatically
+2. Run `VRCX Image Discord Uploader.exe`
+3. Open **Settings → Upload destinations** and add where photos should go (add as many as you like – each photo is posted to all enabled ones):
+    - **Add NekoSune Community** – join the NekoSune Community Discord, run `/vrchatupload key` and paste your personal key (`nkvrm_…`)
+    - **Add my own server** – invite [Nekumi](https://nekumi.nekosunevr.co.uk), open the [dashboard](https://nekumi.nekosunevr.co.uk/dashboard) → your server → **Integrations → VRChat**, create an integration for a channel and paste its key (`nkvrc_…`). Each key always posts to the channel it was made for.
+4. Pick your **Screenshot folder** (e.g. `C:\Users\USERNAME\Pictures\VRChat`) and press **Save**
+5. Press **Start watching** on the Dashboard and take photos in VRChat
+
+All Nekumi destinations use the same upload URL: `https://nekumi.nekosunevr.co.uk/integration/vrchat/v1/upload` – the key decides the server.
 
 ### Upgrading from 1.x
-Leave your old `.env` next to the new exe on first launch and it is imported automatically,
-or use **Data → Import old .env…**. After that the `.env` is not needed any more.
+Leave your old `.env` next to the new exe on first launch and it is imported automatically as a destination,
+or use **Data → Import old .env…**. Settings from 2.0 are upgraded automatically. After that the `.env` is not needed any more.
 
 ### Where is my data?
 `%APPDATA%\NekoSuneVR\VRCX Image Discord Uploader`
@@ -46,10 +44,10 @@ Replacing the exe with a new version never touches this folder. Use **Data → E
 
 # NOTE
 
-Do not Share Your Server ID, Auth key or exported backups or Peopel can Start Uploading all your Channels but all dpends Permission giving to BOT
+Do not share your upload keys or exported backups or Peopel can Start Uploading all your Channels but all dpends Permission giving to BOT
 For your Securuity if your Auth key got Hacked / Leaked and Starting Posting stuff shoudnt posting. please Regenerate your Key
 
-Todo that use `/regenerate-key` in Channel and to get AuthKey `/show-token-key`
+Community key leaked? Run `/vrchatupload key` again – the old key stops working. Server keys can be regenerated in the Nekumi dashboard.
 
 # IF YOU FACE ANY ISSUES OR PROBLEMS, CAN CONTACT ME `NEKOSUNEVR` ON DISCORD OR TWITTER/X
 
