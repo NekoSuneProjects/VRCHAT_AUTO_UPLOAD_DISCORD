@@ -72,6 +72,11 @@ public partial class MainWindow : Window
         _watcher.RunningChanged += r => Dispatcher.BeginInvoke(() => SetRunningUi(r));
         _watcher.Activity += a => Dispatcher.BeginInvoke(() => ActivityText.Text = a);
         _watcher.Processed += e => Dispatcher.BeginInvoke(() => Notify(e));
+        // new photo uploaded while the Photos page is open: rescan so it shows up
+        _watcher.Processed += _ => Dispatcher.BeginInvoke(() =>
+        {
+            if (PagePhotos.Visibility == Visibility.Visible && PhotoDetail.Visibility != Visibility.Visible) _ = LoadPhotosAsync();
+        });
 
         StateChanged += (_, _) =>
         {
@@ -192,7 +197,9 @@ public partial class MainWindow : Window
         PageSettings.Visibility = tag == "Settings" ? Visibility.Visible : Visibility.Collapsed;
         PageData.Visibility = tag == "Data" ? Visibility.Visible : Visibility.Collapsed;
         PageLogs.Visibility = tag == "Logs" ? Visibility.Visible : Visibility.Collapsed;
+        PagePhotos.Visibility = tag == "Photos" ? Visibility.Visible : Visibility.Collapsed;
         if (tag == "Data") RefreshDataPage();
+        if (tag == "Photos") _ = LoadPhotosAsync();
         if (tag == "Logs" && _logs.Count > 0) LogList.ScrollIntoView(_logs[^1]);
     }
 
@@ -229,6 +236,8 @@ public partial class MainWindow : Window
 
     void RefreshHistory()
     {
+        foreach (var p in _monthItems) p.RefreshStatus();
+        if (PhotoDetail.Visibility == Visibility.Visible && _detail != null) RenderDetailDestinations();
         var all = UploadHistory.Instance.Snapshot();
         _recent.Clear();
         foreach (var h in all.Take(100)) _recent.Add(new HistoryItem(h));
@@ -240,16 +249,248 @@ public partial class MainWindow : Window
         DataHistoryCount.Text = all.Count.ToString();
     }
 
-    async void UploadFile_Click(object s, RoutedEventArgs e)
+    /// <summary>"Other file…": open any PNG in the photo view, where the servers can be picked.</summary>
+    void UploadFile_Click(object s, RoutedEventArgs e)
     {
-        if (!IsConfigured(out var why, needFolder: false)) { Toast(why, error: true); return; }
         var dlg = new OpenFileDialog
         {
             Filter = "PNG screenshots|*.png",
             InitialDirectory = Directory.Exists(_settings.ScreenshotFolder) ? _settings.ScreenshotFolder : "",
         };
         if (dlg.ShowDialog(this) != true) return;
-        await UploadManual(dlg.FileName);
+        ShowPhotoDetail(new PhotoItem(dlg.FileName), standalone: true);
+    }
+
+    // ================= Photos =================
+
+    List<PhotoMonth> _months = new();
+    List<PhotoItem> _monthItems = new();
+    List<PhotoItem> _visiblePhotos = new();
+    PhotoItem? _detail;
+    bool _detailStandalone, _scanning;
+
+    async Task LoadPhotosAsync()
+    {
+        if (_scanning) return;
+        _scanning = true;
+        try
+        {
+            var folder = _settings.ScreenshotFolder;
+            if (!Directory.Exists(folder))
+            {
+                PhotosSub.Text = "Pick your VRChat screenshot folder in Settings first.";
+                MonthList.ItemsSource = null;
+                ShowPhotos(new List<PhotoItem>());
+                return;
+            }
+            PhotosSub.Text = "Scanning…";
+            var keep = (MonthList.SelectedItem as PhotoMonth)?.Month;
+            _months = await Task.Run(() => PhotoLibrary.Scan(folder, _settings.IncludeSubfolders));
+            int total = _months.Sum(m => m.Count);
+            PhotosSub.Text = $"{total:N0} photos in {folder}";
+            MonthList.ItemsSource = _months;
+            MonthList.SelectedItem = _months.FirstOrDefault(m => m.Month == keep) ?? _months.FirstOrDefault();
+            if (_months.Count == 0) ShowPhotos(new List<PhotoItem>());
+        }
+        catch (Exception ex)
+        {
+            PhotosSub.Text = "Couldn't read the folder: " + ex.Message;
+        }
+        finally { _scanning = false; }
+    }
+
+    void MonthList_SelectionChanged(object s, SelectionChangedEventArgs e)
+    {
+        if (MonthList.SelectedItem is not PhotoMonth m) return;
+        _monthItems = m.Files.Select(f => new PhotoItem(f)).ToList();
+        PhotoScroll.ScrollToTop();
+        ApplyPhotoFilter();
+    }
+
+    void PhotoFilter_Checked(object s, RoutedEventArgs e)
+    {
+        if (PhotoGrid != null) ApplyPhotoFilter();
+    }
+
+    void ApplyPhotoFilter()
+    {
+        IEnumerable<PhotoItem> list = _monthItems;
+        if (FilterNot.IsChecked == true) list = list.Where(p => p.Status == PhotoStatus.NotUploaded);
+        else if (FilterDone.IsChecked == true) list = list.Where(p => p.Status != PhotoStatus.NotUploaded);
+        ShowPhotos(list.ToList());
+    }
+
+    void ShowPhotos(List<PhotoItem> list)
+    {
+        _visiblePhotos = list;
+        PhotoGrid.ItemsSource = list;
+        int done = _monthItems.Count(p => p.Status == PhotoStatus.Uploaded);
+        PhotoCount.Text = _monthItems.Count == 0 ? "" : $"{list.Count} shown · {done} of {_monthItems.Count} uploaded";
+        PhotosEmpty.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        PhotosEmptyText.Text = _monthItems.Count == 0 ? "No photos here" : "Nothing matches this filter";
+    }
+
+    void PhotosRefresh_Click(object s, RoutedEventArgs e) => _ = LoadPhotosAsync();
+    void PhotosOpenFolder_Click(object s, RoutedEventArgs e)
+    {
+        var folder = (MonthList.SelectedItem as PhotoMonth)?.Files.FirstOrDefault() is { } f ? Path.GetDirectoryName(f)! : _settings.ScreenshotFolder;
+        if (Directory.Exists(folder)) OpenFolder(folder);
+    }
+
+    void Photo_Click(object s, RoutedEventArgs e)
+    {
+        if (((FrameworkElement)s).Tag is PhotoItem p) ShowPhotoDetail(p, standalone: false);
+    }
+
+    // ---- photo detail ----
+
+    async void ShowPhotoDetail(PhotoItem p, bool standalone)
+    {
+        _detail = p;
+        _detailStandalone = standalone;
+        PhotoDetail.Visibility = Visibility.Visible;
+        PdImage.Source = p.Thumbnail; // quick preview while the full image loads
+        PdWorld.Text = "Reading photo…";
+        PdTaken.Text = "Taken " + p.TakenAt.ToString("dddd d MMMM yyyy, HH:mm:ss");
+        PdFile.Text = p.FileName;
+        PdInfo.Text = "";
+        PdPlayers.Text = "";
+        PdStatus.Text = "";
+        RenderDetailDestinations();
+
+        var path = p.Path;
+        var (img, info, size) = await Task.Run(() =>
+        {
+            var full = PhotoItem.Load(path, 1600);
+            ScreenshotInfo meta;
+            long len = 0;
+            try
+            {
+                var bytes = File.ReadAllBytes(path);
+                len = bytes.Length;
+                meta = ScreenshotMetadata.Read(new MemoryStream(bytes), path);
+            }
+            catch { meta = new ScreenshotInfo(); }
+            return (full, meta, len);
+        });
+        if (_detail != p) return; // user moved on
+
+        if (img != null) PdImage.Source = img;
+        PdWorld.Text = info.HasWorld
+            ? (string.IsNullOrEmpty(info.WorldName) ? "Unknown world name" : info.WorldName)
+            : "No world info in this photo";
+
+        var lines = new List<string>();
+        if (!string.IsNullOrEmpty(info.WorldId)) lines.Add("World ID: " + info.WorldId);
+        if (!string.IsNullOrEmpty(info.InstanceId)) lines.Add("Instance: " + info.InstanceId);
+        var res = ScreenshotMetadata.ResolutionFromFileName(path) ?? (img is BitmapSource b ? $"{b.PixelWidth}×{b.PixelHeight}" : null);
+        if (res != null) lines.Add("Size: " + res + (size > 0 ? $" · {size / 1024.0 / 1024.0:0.0} MB" : ""));
+        lines.Add("Info from: " + (info.Source == "none" ? "nothing (no VRCX metadata)" : info.Source));
+        PdInfo.Text = string.Join("\n", lines);
+
+        bool hasPlayers = info.Players.Count > 0;
+        PdPlayersLabel.Visibility = PdPlayers.Visibility = hasPlayers ? Visibility.Visible : Visibility.Collapsed;
+        PdPlayers.Text = string.Join("  ·  ", info.Players.Select(x => x.DisplayName));
+        if (hasPlayers) PdPlayersLabel.Text = $"Players ({info.Players.Count})";
+    }
+
+    /// <summary>One toggle per destination with a key; pre-ticks enabled ones this photo hasn't reached yet.</summary>
+    void RenderDetailDestinations()
+    {
+        if (_detail == null) return;
+        PdDestinations.Children.Clear();
+        var history = UploadHistory.Instance.Find(_detail.BaseName);
+        var usable = _settings.Destinations.Where(d => d.AuthKey.Trim().Length > 0 && d.Url.Trim().Length > 0).ToList();
+
+        foreach (var d in usable)
+        {
+            var r = history?.Results.FirstOrDefault(x => x.DestinationId == d.Id);
+            string state = r == null ? "" : r.Success ? "  ✓ uploaded" : "  ✗ failed";
+            var cb = new CheckBox
+            {
+                Style = (Style)FindResource("Toggle"),
+                Content = d.Name + state + (d.Enabled ? "" : "  (paused)"),
+                Tag = d.Id,
+                IsChecked = d.Enabled && r?.Success != true,
+                ToolTip = r is { Success: false } ? r.Error : null,
+            };
+            PdDestinations.Children.Add(cb);
+        }
+        if (usable.Count == 0)
+            PdDestinations.Children.Add(new TextBlock { Text = "Add a server in Settings → Upload destinations first.", Style = (Style)FindResource("Muted") });
+        PdUploadButton.IsEnabled = usable.Count > 0;
+        if (history != null && PdStatus.Text.Length == 0)
+            PdStatus.Text = $"Last upload {history.Time:dd MMM yyyy HH:mm}";
+    }
+
+    async void PdUpload_Click(object s, RoutedEventArgs e)
+    {
+        if (_detail == null) return;
+        var ids = PdDestinations.Children.OfType<CheckBox>().Where(c => c.IsChecked == true).Select(c => (string)c.Tag).ToList();
+        if (ids.Count == 0) { Toast("Tick at least one server", error: true); return; }
+        if (!File.Exists(_detail.Path)) { Toast("File no longer exists", error: true); return; }
+
+        var p = _detail;
+        PdUploadButton.IsEnabled = false;
+        PdUploadText.Text = "Uploading…";
+        try
+        {
+            _watcher.UpdateSettings(_settings);
+            var r = await _watcher.UploadManualAsync(p.Path, ids);
+            if (r == null) PdStatus.Text = "Upload didn't run – see Logs.";
+            else
+            {
+                var mine = r.Results.Where(x => ids.Contains(x.DestinationId)).ToList();
+                PdStatus.Text = mine.All(x => x.Success)
+                    ? $"✓ Uploaded to {string.Join(", ", mine.Select(x => x.Name))}"
+                    : "✗ " + string.Join("; ", mine.Where(x => !x.Success).Select(x => $"{x.Name}: {x.Error}"));
+                Toast(mine.All(x => x.Success) ? "Uploaded!" : "Some uploads failed", error: !mine.All(x => x.Success));
+            }
+            p.RefreshStatus();
+            if (_detail == p) RenderDetailDestinations();
+        }
+        finally
+        {
+            PdUploadButton.IsEnabled = true;
+            PdUploadText.Text = "Upload to selected";
+        }
+    }
+
+    void StepDetail(int delta)
+    {
+        if (_detail == null || _detailStandalone) return;
+        int i = _visiblePhotos.IndexOf(_detail);
+        if (i < 0) return;
+        int n = i + delta;
+        if (n >= 0 && n < _visiblePhotos.Count) ShowPhotoDetail(_visiblePhotos[n], standalone: false);
+    }
+
+    void PdPrev_Click(object s, RoutedEventArgs e) => StepDetail(-1);
+    void PdNext_Click(object s, RoutedEventArgs e) => StepDetail(+1);
+    void PdClose_Click(object s, RoutedEventArgs e) { PhotoDetail.Visibility = Visibility.Collapsed; _detail = null; ApplyPhotoFilter(); }
+
+    void PdShow_Click(object s, RoutedEventArgs e)
+    {
+        if (_detail != null && File.Exists(_detail.Path)) Process.Start("explorer.exe", $"/select,\"{_detail.Path}\"");
+    }
+
+    void PdOpen_Click(object s, RoutedEventArgs e)
+    {
+        if (_detail != null && File.Exists(_detail.Path)) OpenUrl(_detail.Path);
+    }
+
+    protected override void OnPreviewKeyDown(System.Windows.Input.KeyEventArgs e)
+    {
+        if (PhotoDetail.Visibility == Visibility.Visible && !(e.OriginalSource is TextBox))
+        {
+            switch (e.Key)
+            {
+                case System.Windows.Input.Key.Left: StepDetail(-1); e.Handled = true; return;
+                case System.Windows.Input.Key.Right: StepDetail(+1); e.Handled = true; return;
+                case System.Windows.Input.Key.Escape: PdClose_Click(this, new RoutedEventArgs()); e.Handled = true; return;
+            }
+        }
+        base.OnPreviewKeyDown(e);
     }
 
     async void Retry_Click(object s, RoutedEventArgs e)

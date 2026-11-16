@@ -10,8 +10,13 @@ public static class DiscordUploader
 {
     static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(90) };
 
-    public static string BuildPayload(ScreenshotInfo info, bool includePlayers)
+    public static string BuildPayload(ScreenshotInfo info, bool includePlayers, DateTime? takenAt = null)
     {
+        // Older photos (gallery / late uploads) get their real date, since the Discord post shows the upload time.
+        string message = takenAt is { } t && DateTime.Now - t > TimeSpan.FromMinutes(15)
+            ? $"📸 Taken {t:dddd d MMMM yyyy, HH:mm}"
+            : "";
+
         string world;
         if (!string.IsNullOrEmpty(info.WorldId))
         {
@@ -37,6 +42,7 @@ public static class DiscordUploader
             worldId = info.WorldId,
             instanceId = info.InstanceId,
             players,
+            message,
         }, Json.Compact);
     }
 

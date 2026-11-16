@@ -196,9 +196,10 @@ public sealed class ScreenshotWatcher : IDisposable
                 : $"Uploading {Path.GetFileName(finalPath)} – no world info found");
             Activity?.Invoke("Uploading " + Path.GetFileName(finalPath));
 
-            var targets = _settings.ActiveDestinations
-                .Where(d => onlyIds == null || onlyIds.Contains(d.Id))
-                .ToList();
+            // Auto uploads go to enabled destinations; a hand-picked list (gallery/retry) may include paused ones.
+            var targets = onlyIds == null
+                ? _settings.ActiveDestinations.ToList()
+                : _settings.Destinations.Where(d => onlyIds.Contains(d.Id) && d.AuthKey.Trim().Length > 0 && d.Url.Trim().Length > 0).ToList();
             if (targets.Count == 0)
             {
                 Log.Warn("No enabled upload destination with a key – add one in Settings → Upload destinations.");
@@ -206,7 +207,8 @@ public sealed class ScreenshotWatcher : IDisposable
                 return null;
             }
 
-            var payload = DiscordUploader.BuildPayload(info, _settings.IncludePlayers);
+            var takenAt = ScreenshotMetadata.TakenAt(finalPath);
+            var payload = DiscordUploader.BuildPayload(info, _settings.IncludePlayers, takenAt);
             var fileName = Path.GetFileName(finalPath);
             var results = new List<DestinationResult>();
             foreach (var d in targets)
@@ -227,6 +229,7 @@ public sealed class ScreenshotWatcher : IDisposable
                 WorldName = info.WorldName,
                 WorldId = info.WorldId,
                 PlayerCount = info.Players.Count,
+                TakenAt = takenAt,
                 Results = results,
                 Error = ok ? "" : string.Join("; ", results.Where(r => !r.Success).Select(r => $"{r.Name}: {r.Error}")),
             };

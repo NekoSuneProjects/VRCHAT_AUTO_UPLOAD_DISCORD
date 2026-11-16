@@ -6,6 +6,11 @@ GitHub release description, and the app shows it under "What's new". Write new e
 ## 2.2.0
 
 ### New
+- **Photos page**: all your VRChat screenshots grouped by the month they were taken, with Uploaded / Not uploaded filters
+- Click a photo to see it large with its date, world, instance and players (when the photo has that info), its upload status per server, and upload it to the servers you tick – including paused ones
+- ← / → to flip through photos, Esc to close; "Other file…" opens any PNG the same way (replaces the old "Upload file…" button)
+- Dates come from when the photo was **taken** (VRChat file name), not when it was uploaded – Recent uploads shows "Taken …" with the upload time below
+- Uploading an older photo adds "📸 Taken <date>" to the Discord post
 - Update notifier: checks GitHub releases (NekoSuneProjects/VRCHAT_AUTO_UPLOAD_DISCORD) on start and every 6 hours
 - Dashboard banner with **Update now** (downloads, closes, updates and restarts – settings/history are kept), **What's new** and **Skip**
 - "What's new" shows the changelog of every version between yours and the update, and the new version's notes after updating

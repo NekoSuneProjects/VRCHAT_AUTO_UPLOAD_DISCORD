@@ -27,6 +27,43 @@ public static partial class ScreenshotMetadata
     [GeneratedRegex(@"_(wrld_[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})")]
     private static partial Regex FileWorldRegex();
 
+    // VRChat_2026-09-08_19-02-31.795_1920x1080.png (and the older VRChat_1920x1080_2022-01-01_12-00-00.000.png)
+    [GeneratedRegex(@"(\d{4})-(\d{2})-(\d{2})_(\d{2})-(\d{2})-(\d{2})(?:\.(\d{1,3}))?")]
+    private static partial Regex FileDateRegex();
+
+    [GeneratedRegex(@"_(\d{3,5})x(\d{3,5})")]
+    private static partial Regex FileSizeRegex();
+
+    /// <summary>When the photo was taken: from the VRChat file name, else the oldest file date (copying resets "created").</summary>
+    public static DateTime TakenAt(string path)
+    {
+        var m = FileDateRegex().Match(Path.GetFileName(path));
+        if (m.Success)
+        {
+            try
+            {
+                int ms = m.Groups[7].Success ? int.Parse(m.Groups[7].Value.PadRight(3, '0')) : 0;
+                return new DateTime(int.Parse(m.Groups[1].Value), int.Parse(m.Groups[2].Value), int.Parse(m.Groups[3].Value),
+                    int.Parse(m.Groups[4].Value), int.Parse(m.Groups[5].Value), int.Parse(m.Groups[6].Value), ms, DateTimeKind.Local);
+            }
+            catch (ArgumentOutOfRangeException) { }
+        }
+        try
+        {
+            var c = File.GetCreationTime(path);
+            var w = File.GetLastWriteTime(path);
+            return c < w ? c : w;
+        }
+        catch { return DateTime.Now; }
+    }
+
+    /// <summary>"1920x1080" from the file name, if present.</summary>
+    public static string? ResolutionFromFileName(string path)
+    {
+        var m = FileSizeRegex().Match(Path.GetFileName(path));
+        return m.Success ? $"{m.Groups[1].Value}×{m.Groups[2].Value}" : null;
+    }
+
     [GeneratedRegex(@"<vrc:WorldID>\s*([^<]+?)\s*</vrc:WorldID>|vrc:WorldID=""([^""]+)""")]
     private static partial Regex XmpWorldIdRegex();
 
