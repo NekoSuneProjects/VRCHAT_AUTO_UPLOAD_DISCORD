@@ -1,18 +1,32 @@
-﻿<Project Sdk="Microsoft.NET.Sdk">
+<Project Sdk="Microsoft.NET.Sdk">
 
   <PropertyGroup>
-    <OutputType>Exe</OutputType>
-    <TargetFramework>net8.0</TargetFramework>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
     <RootNamespace>VRCX_Image_Discord_Uploader</RootNamespace>
-    <Version>1.0.2</Version>
+    <AssemblyName>VRCX Image Discord Uploader</AssemblyName>
+    <Version>2.0.0</Version>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
+    <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
+    <!-- lets CI / Linux build the Windows target -->
+    <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <RuntimeIdentifiers>win-x64</RuntimeIdentifiers>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <ApplicationIcon>app.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
-    <PackageReference Include="DotNetEnv" Version="3.0.0" />
-    <PackageReference Include="MetadataExtractor" Version="2.8.1" />
-    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+    <!-- WinForms is only used for the tray icon; avoid ambiguous type names with WPF -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
   </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="app.ico" />
+    <Resource Include="logo.png" />
+  </ItemGroup>
+
 
 </Project>
