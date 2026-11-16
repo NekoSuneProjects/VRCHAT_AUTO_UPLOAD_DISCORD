@@ -18,13 +18,13 @@ jobs:
       # Checkout
       # ==========================
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # ==========================
       # Setup .NET
       # ==========================
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@v6
         with:
           dotnet-version: 8.0.x
 
@@ -113,10 +113,9 @@ jobs:
       # ==========================
       - name: Generate Release Notes
         id: notes
-        uses: release-drafter/release-drafter@v6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        uses: release-drafter/release-drafter@v7
         with:
+          token: ${{ secrets.GITHUB_TOKEN }}
           version: ${{ env.VERSION }}
           name: ${{ env.RELEASE_NAME }}
           tag: ${{ env.TAG }}
@@ -130,7 +129,7 @@ jobs:
       # GitHub Release + Upload ZIP
       # ==========================
       - name: Create Release + Upload Assets
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ env.TAG }}
           name: ${{ env.RELEASE_NAME }}
@@ -141,7 +140,7 @@ jobs:
             https://github.com/${{ github.repository }}/releases/download/${{ env.TAG }}/${{ env.ZIP_NAME }}
           files: |
             ${{ env.ZIP_NAME }}
-          overwrite: true
+          overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
