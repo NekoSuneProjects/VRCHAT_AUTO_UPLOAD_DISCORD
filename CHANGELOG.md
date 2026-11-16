@@ -11,6 +11,10 @@ GitHub release description, and the app shows it under "What's new". Write new e
 - ← / → to flip through photos, Esc to close; "Other file…" opens any PNG the same way (replaces the old "Upload file…" button)
 - Dates come from when the photo was **taken** (VRChat file name), not when it was uploaded – Recent uploads shows "Taken …" with the upload time below
 - Uploading an older photo adds "📸 Taken <date>" to the Discord post
+- **No duplicates**: a photo is never sent to a server that already has it. The photo view asks Nekumi (`/check`) and locks those servers ("✓ already posted"); if Nekumi still answers "duplicate", it counts as already there instead of failing
+- **Server rules**: adding or editing a server shows its ⚠️ Rules from Nekumi and needs "I've read these rules" before saving. Each server shows where it posts (server › #channel, Public/Private)
+- If a server changes its rules, auto-upload there pauses and the Dashboard asks you to review them
+- The photo view shows the rules of every server you tick, above the Upload button
 - Update notifier: checks GitHub releases (NekoSuneProjects/VRCHAT_AUTO_UPLOAD_DISCORD) on start and every 6 hours
 - Dashboard banner with **Update now** (downloads, closes, updates and restarts – settings/history are kept), **What's new** and **Skip**
 - "What's new" shows the changelog of every version between yours and the update, and the new version's notes after updating

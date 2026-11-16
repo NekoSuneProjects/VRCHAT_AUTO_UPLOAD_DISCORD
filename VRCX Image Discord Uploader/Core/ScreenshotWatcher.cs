@@ -197,9 +197,20 @@ public sealed class ScreenshotWatcher : IDisposable
             Activity?.Invoke("Uploading " + Path.GetFileName(finalPath));
 
             // Auto uploads go to enabled destinations; a hand-picked list (gallery/retry) may include paused ones.
-            var targets = onlyIds == null
+            // Never: a server whose new rules haven't been accepted, or one that already has this photo.
+            var alreadyOn = UploadHistory.Instance.Find(baseName)?.UploadedTo() ?? new HashSet<string>();
+            var wanted = onlyIds == null
                 ? _settings.ActiveDestinations.ToList()
-                : _settings.Destinations.Where(d => onlyIds.Contains(d.Id) && d.AuthKey.Trim().Length > 0 && d.Url.Trim().Length > 0).ToList();
+                : _settings.Destinations.Where(d => onlyIds.Contains(d.Id) && !d.NeedsRulesAcceptance && d.AuthKey.Trim().Length > 0 && d.Url.Trim().Length > 0).ToList();
+            var skipped = wanted.Where(d => alreadyOn.Contains(d.Id)).ToList();
+            var targets = wanted.Where(d => !alreadyOn.Contains(d.Id)).ToList();
+            if (skipped.Count > 0)
+                Log.Info($"{baseName}: already uploaded to {string.Join(", ", skipped.Select(d => d.Name))} – not sending it again.");
+            if (targets.Count == 0 && skipped.Count > 0)
+            {
+                Activity?.Invoke("Idle");
+                return UploadHistory.Instance.Find(baseName);
+            }
             if (targets.Count == 0)
             {
                 Log.Warn("No enabled upload destination with a key – add one in Settings → Upload destinations.");
@@ -214,8 +225,9 @@ public sealed class ScreenshotWatcher : IDisposable
             foreach (var d in targets)
             {
                 var r = await DiscordUploader.UploadAsync(d, bytes, fileName, payload, ct);
-                results.Add(new DestinationResult { DestinationId = d.Id, Name = d.Name, Success = r.Success, Error = r.Success ? "" : r.Message });
-                if (r.Success) Log.Success($"Uploaded {fileName} → {d.Name}");
+                results.Add(new DestinationResult { DestinationId = d.Id, Name = d.Name, Success = r.Success, Duplicate = r.Duplicate, Error = r.Success ? "" : r.Message });
+                if (r.Duplicate) Log.Info($"{fileName} is already on {d.Name} – skipped (no duplicate posted).");
+                else if (r.Success) Log.Success($"Uploaded {fileName} → {d.Name}");
                 else Log.Error($"Upload to {d.Name} failed for {fileName}: {r.Message}");
             }
 

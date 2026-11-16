@@ -4,7 +4,10 @@ using System.Text.Json;
 
 namespace VRCX_Image_Discord_Uploader.Core;
 
-public record UploadResult(bool Success, string Message);
+public record UploadResult(bool Success, string Message, bool Duplicate = false);
+
+/// <summary>What Nekumi's /info says about a key: where it posts and the rules there.</summary>
+public record DestinationInfo(string KeyType, string Name, string ServerName, string ChannelName, string Visibility, List<string> Rules);
 
 public static class DiscordUploader
 {
@@ -74,6 +77,8 @@ public static class DiscordUploader
                 using var resp = await Http.SendAsync(req, ct);
                 var body = await resp.Content.ReadAsStringAsync(ct);
                 if (resp.IsSuccessStatusCode) return new(true, "Uploaded");
+                // Nekumi: this photo is already in that channel – that's fine, nothing to retry.
+                if ((int)resp.StatusCode == 409 && IsDuplicate(body)) return new(true, "Already posted there", Duplicate: true);
 
                 var msg = $"{(int)resp.StatusCode} {resp.ReasonPhrase}";
                 var detail = ErrorText(body);
@@ -106,6 +111,84 @@ public static class DiscordUploader
         catch { }
         return Trim(body);
     }
+
+    static bool IsDuplicate(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            return doc.RootElement.TryGetProperty("duplicate", out var d) && d.ValueKind == JsonValueKind.True;
+        }
+        catch { return false; }
+    }
+
+    /// <summary>".../integration/vrchat/v1/upload" -> ".../integration/vrchat/v1/{name}", or null for non-Nekumi URLs.</summary>
+    static Uri? NekumiEndpoint(UploadDestination d, string name)
+    {
+        if (!Uri.TryCreate(d.ResolveUrl(), UriKind.Absolute, out var uri)) return null;
+        int i = uri.AbsolutePath.IndexOf("/integration/vrchat/", StringComparison.OrdinalIgnoreCase);
+        if (i < 0) return null;
+        return new UriBuilder(uri) { Path = uri.AbsolutePath[..i] + "/integration/vrchat/v1/" + name, Query = "" }.Uri;
+    }
+
+    /// <summary>
+    /// Destination name, server/channel, public/private and rules for this key. Null when the server doesn't
+    /// support it (old bot / custom URL). Throws with a readable message for a bad key or network error.
+    /// </summary>
+    public static async Task<DestinationInfo?> GetInfoAsync(UploadDestination d, CancellationToken ct = default)
+    {
+        var url = NekumiEndpoint(d, "info");
+        if (url == null || d.AuthKey.Trim().Length == 0) return null;
+        using var req = new HttpRequestMessage(HttpMethod.Get, url);
+        req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", d.AuthKey.Trim());
+        using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        cts.CancelAfter(TimeSpan.FromSeconds(20));
+        using var resp = await Http.SendAsync(req, cts.Token);
+        var body = await resp.Content.ReadAsStringAsync(cts.Token);
+        if ((int)resp.StatusCode == 404) return null; // Nekumi without /info yet
+        if (!resp.IsSuccessStatusCode)
+            throw new HttpRequestException($"{(int)resp.StatusCode} {resp.ReasonPhrase} – {ErrorText(body)}");
+
+        using var doc = JsonDocument.Parse(body);
+        var r = doc.RootElement;
+        string S(JsonElement e, string p) => e.ValueKind == JsonValueKind.Object && e.TryGetProperty(p, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "";
+        var rules = new List<string>();
+        if (r.TryGetProperty("rules", out var arr) && arr.ValueKind == JsonValueKind.Array)
+            foreach (var x in arr.EnumerateArray())
+                if (x.ValueKind == JsonValueKind.String && !string.IsNullOrWhiteSpace(x.GetString())) rules.Add(x.GetString()!.Trim());
+        return new DestinationInfo(
+            S(r, "keyType"), S(r, "name"),
+            r.TryGetProperty("guild", out var g) ? S(g, "name") : "",
+            r.TryGetProperty("channel", out var c) ? S(c, "name") : "",
+            S(r, "visibility"), rules);
+    }
+
+    /// <summary>Which of these SHA-256 hashes the server already has in this key's channel. Null if unsupported/unreachable.</summary>
+    public static async Task<HashSet<string>?> CheckPostedAsync(UploadDestination d, IEnumerable<string> hashes, CancellationToken ct = default)
+    {
+        var url = NekumiEndpoint(d, "check");
+        if (url == null || d.AuthKey.Trim().Length == 0) return null;
+        try
+        {
+            using var req = new HttpRequestMessage(HttpMethod.Post, url)
+            {
+                Content = new StringContent(JsonSerializer.Serialize(new { hashes = hashes.ToArray() }), System.Text.Encoding.UTF8, "application/json"),
+            };
+            req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", d.AuthKey.Trim());
+            using var cts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+            cts.CancelAfter(TimeSpan.FromSeconds(20));
+            using var resp = await Http.SendAsync(req, cts.Token);
+            if (!resp.IsSuccessStatusCode) return null;
+            using var doc = JsonDocument.Parse(await resp.Content.ReadAsStringAsync(cts.Token));
+            var set = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            if (doc.RootElement.TryGetProperty("posted", out var p) && p.ValueKind == JsonValueKind.Array)
+                foreach (var x in p.EnumerateArray()) if (x.GetString() is { } h) set.Add(h);
+            return set;
+        }
+        catch { return null; }
+    }
+
+    public static string Sha256Hex(byte[] data) => Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(data)).ToLowerInvariant();
 
     /// <summary>Checks the server is reachable without posting anything (Nekumi /integration/vrchat/health).</summary>
     public static async Task<UploadResult> CheckAsync(UploadDestination d)

@@ -32,6 +32,30 @@ public class UploadDestination
     [JsonIgnore] public string AuthKey { get; set; } = "";
     public string AuthKeyProtected { get; set; } = "";
 
+    // ---- From the server (Nekumi /info), refreshed on start and every few hours ----
+    public List<string> Rules { get; set; } = new();
+    /// <summary>Hash of the rules the user accepted. If the server changes its rules, auto-upload pauses until accepted again.</summary>
+    public string AcceptedRulesHash { get; set; } = "";
+    public string ServerName { get; set; } = "";
+    public string ChannelName { get; set; } = "";
+    /// <summary>"public" / "private" / "" (unknown or not a Nekumi server).</summary>
+    public string Visibility { get; set; } = "";
+
+    [JsonIgnore] public string RulesHash => Rules.Count == 0 ? "" :
+        Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(string.Join("\n", Rules))));
+    [JsonIgnore] public bool NeedsRulesAcceptance => Rules.Count > 0 && AcceptedRulesHash != RulesHash;
+    [JsonIgnore] public string InfoText
+    {
+        get
+        {
+            var where = ServerName.Length > 0 ? ServerName + (ChannelName.Length > 0 ? " › #" + ChannelName : "") : "";
+            var vis = Visibility switch { "public" => "Public", "private" => "Private", _ => "" };
+            var parts = new[] { where, vis, NeedsRulesAcceptance ? "⚠ new rules – review" : Rules.Count > 0 ? $"{Rules.Count} rule(s)" : "" }
+                .Where(p => p.Length > 0);
+            return string.Join("  ·  ", parts);
+        }
+    }
+
     // Only used by old-style URLs: https://host/v1/discord/webhooks/{serverId}/{channelId}/upload/text
     public string ServerId { get; set; } = "";
     public string ChannelId { get; set; } = "";
@@ -73,7 +97,12 @@ public class UploadDestination
         }
     }
 
-    public UploadDestination Clone() => (UploadDestination)MemberwiseClone();
+    public UploadDestination Clone()
+    {
+        var c = (UploadDestination)MemberwiseClone();
+        c.Rules = Rules.ToList();
+        return c;
+    }
 }
 
 public class AppSettings
@@ -110,7 +139,7 @@ public class AppSettings
     public string LastRunVersion { get; set; } = "";
 
     [JsonIgnore] public IEnumerable<UploadDestination> ActiveDestinations =>
-        Destinations.Where(d => d.Enabled && !string.IsNullOrWhiteSpace(d.Url) && !string.IsNullOrWhiteSpace(d.AuthKey));
+        Destinations.Where(d => d.Enabled && !d.NeedsRulesAcceptance && !string.IsNullOrWhiteSpace(d.Url) && !string.IsNullOrWhiteSpace(d.AuthKey));
 
     public AppSettings Clone()
     {

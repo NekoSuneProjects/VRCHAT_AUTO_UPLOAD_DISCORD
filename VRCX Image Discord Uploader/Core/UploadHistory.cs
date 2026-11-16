@@ -9,6 +9,8 @@ public class DestinationResult
     public string DestinationId { get; set; } = "";
     public string Name { get; set; } = "";
     public bool Success { get; set; }
+    /// <summary>The server already had this photo (counts as uploaded).</summary>
+    public bool Duplicate { get; set; }
     public string Error { get; set; } = "";
 }
 
@@ -30,7 +32,10 @@ public class HistoryEntry
     [JsonIgnore] public string TimeText => "Uploaded " + Time.ToString("dd MMM HH:mm");
     [JsonIgnore] public string TakenText => "Taken " + (TakenAt ?? Time).ToString(((TakenAt ?? Time).Year == DateTime.Now.Year ? "dd MMM" : "dd MMM yyyy") + " HH:mm");
     [JsonIgnore] public string StatusText => Success ? "Uploaded" : Results.Any(r => r.Success) ? "Partly failed" : "Failed";
-    [JsonIgnore] public string DestinationsText => Results.Count == 0 ? "" : string.Join("  ·  ", Results.Select(r => (r.Success ? "✓ " : "✗ ") + r.Name));
+    [JsonIgnore] public string DestinationsText => Results.Count == 0 ? "" : string.Join("  ·  ", Results.Select(r => (r.Success ? "✓ " : "✗ ") + r.Name + (r.Duplicate ? " (already there)" : "")));
+
+    /// <summary>Destination ids this photo is already on.</summary>
+    public HashSet<string> UploadedTo() => Results.Where(r => r.Success).Select(r => r.DestinationId).ToHashSet();
     [JsonIgnore] public string WorldText => string.IsNullOrEmpty(WorldName) ? (string.IsNullOrEmpty(WorldId) ? "No world info" : WorldId) : WorldName;
     [JsonIgnore] public string Detail => Success ? $"{PlayerCount} player(s) · {DestinationsText}" : Error;
 }
