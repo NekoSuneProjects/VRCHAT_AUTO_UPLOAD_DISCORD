@@ -368,10 +368,13 @@
         <Setter Property="BorderThickness" Value="0"/>
         <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
         <Setter Property="VirtualizingPanel.ScrollUnit" Value="Pixel"/>
+        <Setter Property="Foreground" Value="{StaticResource Text}"/>
         <Setter Property="ItemContainerStyle">
             <Setter.Value>
                 <Style TargetType="ListBoxItem">
                     <Setter Property="Focusable" Value="False"/>
+                    <!-- default ListBoxItem uses the system (black) text colour -->
+                    <Setter Property="Foreground" Value="{StaticResource Text}"/>
                     <Setter Property="Template">
                         <Setter.Value>
                             <ControlTemplate TargetType="ListBoxItem">
