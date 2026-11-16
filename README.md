@@ -3,25 +3,42 @@
 Automaticly Uploads Photos to your VRChat
 
 # REQUIRES
-1. [VRCX](https://github.com/vrcx-team/VRCX/releases/)
-2. [.Net 8.0 SDK](https://dotnet.microsoft.com/en-us/download/dotnet/thank-you/sdk-8.0.302-windows-x64-installer)
+1. [VRCX](https://github.com/vrcx-team/VRCX/releases/) (optional but recommended – gives world + player info)
+2. Windows 10 / 11 (the release zip is self-contained, no .NET install needed)
 
 # SETUP
 
-# MAKE SURE HAVE VRCX RUNNING AND GO TO `Advanced` PAGE AND TURN THIS ON
+# IN VRCX GO TO `Advanced` PAGE AND TURN THIS ON
 
 ![IMAGE HERE SETTINGS](https://cdn.discordapp.com/attachments/1163195342754435193/1250768960912363592/image.png?ex=666c24de&is=666ad35e&hm=1bd2232e598e6ccea6775733a89d558b10d09942bcf1dcda5f8913126a34247e&)
 
 1. Download [Latest Files](https://github.com/NekoSuneProjects/VRCHAT_AUTO_UPLOAD_DISCORD/releases/latest)
 2. Invite [My Discord BOT](https://discord.com/oauth2/authorize?client_id=1390664793345757204) For this Work
-3. Make Text Channel or use Corrent Channel
-4. Edit `.env` and fill 
-    SERVERID = Your discord Server ID
-    CHANNELID = Your Discord Channel ID
-    DISCORD_WEBHOOK_AuthKey=Your AUthKey That Discord BOT Made for You
-    VRCHAT_IMAGE_PATH=Your VRChat File Path Example C:\Users\USERNAME\Photos\VRChat
-5. Run `VRCX Image Discord Uploader.exe` File
-6. then Take Photos from your Camera on PC and will Auto Upload to your Discord Server
+3. Make Text Channel or use Current Channel
+4. Run `VRCX Image Discord Uploader.exe`
+5. Open **Settings** and fill in:
+    - **Upload URL** – the bot upload URL (`DISCORD_WEBHOOK_URL` from the old .env)
+    - **Server ID** / **Channel ID** – your Discord server + channel
+    - **Auth key** – from `/show-token-key`
+    - **Screenshot folder** – e.g. `C:\Users\USERNAME\Pictures\VRChat`
+6. Press **Save**, then **Start watching** on the Dashboard
+7. Take photos in VRChat – they upload automatically
+
+### Upgrading from 1.x
+Leave your old `.env` next to the new exe on first launch and it is imported automatically,
+or use **Data → Import old .env…**. After that the `.env` is not needed any more.
+
+### Where is my data?
+`%APPDATA%\NekoSuneVR\VRCX Image Discord Uploader`
+
+| File | What |
+|---|---|
+| `settings.json` | your settings (auth key encrypted for your Windows user) |
+| `history.json` | upload history (stops double uploads) |
+| `logs\` | daily log files, kept 14 days |
+| `backups\` | automatic copies made before imports / resets / upgrades |
+
+Replacing the exe with a new version never touches this folder. Use **Data → Export backup** to move everything to another PC.
 
 # PREVIEW
 
@@ -29,8 +46,8 @@ Automaticly Uploads Photos to your VRChat
 
 # NOTE
 
-Do not Share Your `SERVERID`, `DISCORD_WEBHOOK_AuthKey` or Peopel can Start Uploading all your Channels but all dpends Permission giving to BOT
-For your Securuity if `DISCORD_WEBHOOK_AuthKey` got Hacked / Leaked and Starting Posting stuff shoudnt posting. please Regenerate your Key
+Do not Share Your Server ID, Auth key or exported backups or Peopel can Start Uploading all your Channels but all dpends Permission giving to BOT
+For your Securuity if your Auth key got Hacked / Leaked and Starting Posting stuff shoudnt posting. please Regenerate your Key
 
 Todo that use `/regenerate-key` in Channel and to get AuthKey `/show-token-key`
 

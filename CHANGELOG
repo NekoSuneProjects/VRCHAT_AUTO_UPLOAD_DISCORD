@@ -1,0 +1,19 @@
+# 2.0.0
+
+## New
+- Full GUI app (no more editing .env): Dashboard, Settings, Data and Logs pages, dark modern design
+- Settings + upload history saved in %APPDATA%\NekoSuneVR\VRCX Image Discord Uploader – updates never lose your data
+- Old .env next to the exe is imported automatically on first run (or via Data → Import old .env)
+- Data page: export / import backups, clear history, reset – a safety copy is always kept in the backups folder
+- Versioned settings file (SchemaVersion) with automatic upgrades for future changes
+- Auth key encrypted with your Windows account (DPAPI)
+- Tray icon, start with Windows, upload notifications, single instance
+- Upload any screenshot by hand, retry failed uploads from the dashboard
+- Reads VRChat's own XMP metadata and the "_wrld_" file name if VRCX metadata is missing
+
+## Fixed
+- "Could not find file" when VRCX renames the screenshot to ..._wrld_xxx.png
+- Same screenshot being uploaded twice / racing (Created + Renamed events processed in parallel)
+- "Upload failed: Bad Request" when no metadata was found (empty "{}" payload) – the bot now always gets world + players
+- Error responses from the bot are now shown in full in the log
+- Removed DotNetEnv / MetadataExtractor / Newtonsoft.Json dependencies
