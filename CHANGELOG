@@ -1,3 +1,15 @@
+# 2.2.0
+
+## New
+- Update notifier: checks GitHub releases (NekoSuneProjects/VRCHAT_AUTO_UPLOAD_DISCORD) on start and every 6 hours
+- Dashboard banner with **Update now** (downloads, closes, updates and restarts – settings/history are kept), **Release notes** and **Skip**
+- Settings → Updates: auto-check on/off, opt-in beta versions, Check now, link to all releases
+- If the app is in a folder it can't write to (e.g. Program Files), "Download" opens the release page instead
+
+## CI
+- Builds are stamped with their real version (e.g. 2.2.0-beta-15) so the app can compare versions
+- BETA releases are published as pre-releases (only offered to users who turn on beta updates)
+
 # 2.1.0
 
 ## New

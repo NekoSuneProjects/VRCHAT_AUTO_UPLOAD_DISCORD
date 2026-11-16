@@ -6,6 +6,7 @@ using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using VRCX_Image_Discord_Uploader.Core;
 using Forms = System.Windows.Forms;
@@ -61,7 +62,7 @@ public partial class MainWindow : Window
         _settings = settings;
         InitializeComponent();
 
-        VersionText.Text = "v" + (typeof(App).Assembly.GetName().Version?.ToString(3) ?? "?");
+        VersionText.Text = "v" + AppVersion.Current;
         RecentList.ItemsSource = _recent;
         LogList.ItemsSource = _logs;
 
@@ -82,6 +83,12 @@ public partial class MainWindow : Window
         RefreshDataPage();
         SetupTray();
         UpdateSetupBanner();
+
+        // update check shortly after start, then every 6 hours
+        _updateTimer.Interval = TimeSpan.FromHours(6);
+        _updateTimer.Tick += async (_, _) => await CheckUpdatesAsync(manual: false);
+        _updateTimer.Start();
+        _ = FirstUpdateCheckAsync();
 
         if (_settings.StartWatchingOnLaunch && IsConfigured(out _))
             _watcher.Start(_settings);
@@ -304,6 +311,9 @@ public partial class MainWindow : Window
         WindowsStartCheck.IsChecked = _settings.StartWithWindows;
         TrayCheck.IsChecked = _settings.MinimizeToTray;
         NotifyCheck.IsChecked = _settings.ShowNotifications;
+        UpdateCheck.IsChecked = _settings.CheckForUpdates;
+        BetaCheck.IsChecked = _settings.BetaUpdates;
+        CurrentVersionText.Text = $"You have v{AppVersion.Current}. Updates come from GitHub releases; your settings are kept.";
         SaveStatus.Text = "";
     }
 
@@ -327,6 +337,8 @@ public partial class MainWindow : Window
         n.StartWithWindows = WindowsStartCheck.IsChecked == true;
         n.MinimizeToTray = TrayCheck.IsChecked == true;
         n.ShowNotifications = NotifyCheck.IsChecked == true;
+        n.CheckForUpdates = UpdateCheck.IsChecked == true;
+        n.BetaUpdates = BetaCheck.IsChecked == true;
 
         ApplySettings(n);
         SaveStatus.Foreground = (Brush)FindResource("Success");
@@ -537,6 +549,119 @@ public partial class MainWindow : Window
     void Settle_Changed(object s, RoutedPropertyChangedEventArgs<double> e)
     {
         if (SettleText != null) SettleText.Text = (e.NewValue / 1000).ToString("0.0") + " s";
+    }
+
+    // ================= Updates =================
+
+    readonly DispatcherTimer _updateTimer = new();
+    ReleaseInfo? _update;
+    bool _checking, _installing;
+
+    async Task CheckUpdatesAsync(bool manual)
+    {
+        if (_checking || _installing) return;
+        if (!manual && !_settings.CheckForUpdates) return;
+        _checking = true;
+        if (manual) UpdateStatus.Text = "Checking…";
+        try
+        {
+            var r = await UpdateChecker.CheckAsync(_settings.BetaUpdates);
+            _update = r;
+            if (r == null)
+            {
+                UpdateBanner.Visibility = Visibility.Collapsed;
+                VersionText.Text = "v" + AppVersion.Current;
+                if (manual) UpdateStatus.Text = "✓ You're on the latest version.";
+                return;
+            }
+
+            Log.Info($"Update available: v{r.Version} ({r.Name})");
+            VersionText.Text = $"v{AppVersion.Current} · update available";
+            UpdateTitle.Text = $"Version {r.Version} is available";
+            UpdateSub.Text = $"You have v{AppVersion.Current}" + (r.Published > DateTime.MinValue ? $" · released {r.Published.ToLocalTime():dd MMM yyyy}" : "");
+            UpdateNowButton.Content = r.ZipUrl != null && Updater.CanSelfUpdate() ? "Update now" : "Download";
+            bool skipped = !manual && _settings.SkippedVersion == r.Version.ToString();
+            UpdateBanner.Visibility = skipped ? Visibility.Collapsed : Visibility.Visible;
+            if (manual)
+            {
+                UpdateStatus.Text = $"v{r.Version} is available – see the Dashboard.";
+                NavDashboard.IsChecked = true;
+            }
+            else if (!skipped && !IsVisible && _tray != null)
+            {
+                _tray.ShowBalloonTip(5000, "Update available", $"Version {r.Version} is ready to install.", Forms.ToolTipIcon.None);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (manual) UpdateStatus.Text = "Couldn't check: " + ex.Message;
+            Log.Warn("Update check failed: " + ex.Message);
+        }
+        finally { _checking = false; }
+    }
+
+    async Task FirstUpdateCheckAsync()
+    {
+        await Task.Delay(TimeSpan.FromSeconds(4));
+        await CheckUpdatesAsync(manual: false);
+    }
+
+    async void CheckUpdates_Click(object s, RoutedEventArgs e)
+    {
+        // use the toggles as shown, even if not saved yet
+        var beta = _settings.BetaUpdates;
+        _settings.BetaUpdates = BetaCheck.IsChecked == true;
+        try { await CheckUpdatesAsync(manual: true); }
+        finally { _settings.BetaUpdates = beta; }
+    }
+
+    void OpenReleases_Click(object s, RoutedEventArgs e) => OpenUrl(UpdateChecker.ReleasesPage);
+
+    void UpdateNotes_Click(object s, RoutedEventArgs e) =>
+        OpenUrl(string.IsNullOrEmpty(_update?.PageUrl) ? UpdateChecker.ReleasesPage : _update!.PageUrl);
+
+    void UpdateSkip_Click(object s, RoutedEventArgs e)
+    {
+        if (_update == null) return;
+        var v = _update.Version.ToString();
+        SaveDestinations(n => n.SkippedVersion = v);
+        UpdateBanner.Visibility = Visibility.Collapsed;
+        Toast($"Skipped v{v}");
+    }
+
+    async void UpdateNow_Click(object s, RoutedEventArgs e)
+    {
+        if (_update == null || _installing) return;
+        if (_update.ZipUrl == null || !Updater.CanSelfUpdate())
+        {
+            // e.g. installed in Program Files: let them download it by hand
+            OpenUrl(string.IsNullOrEmpty(_update.PageUrl) ? UpdateChecker.ReleasesPage : _update.PageUrl);
+            return;
+        }
+        if (MessageBox.Show(this, $"Download and install v{_update.Version}?\n\nThe app closes, updates and opens again. Your settings and history are kept.",
+                "Update", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK) return;
+
+        _installing = true;
+        UpdateNowButton.IsEnabled = false;
+        try
+        {
+            var progress = new Progress<double>(p => UpdateSub.Text = $"Downloading… {p:P0}");
+            var dir = await Updater.DownloadAsync(_update, progress);
+            UpdateSub.Text = "Installing…";
+            _watcher.Stop();
+            Updater.LaunchInstaller(dir);
+            Quit();
+        }
+        catch (Exception ex)
+        {
+            Log.Error("Update failed: " + ex.Message);
+            UpdateSub.Text = "Update failed: " + ex.Message;
+            Toast("Update failed – try Download instead", error: true);
+            UpdateNowButton.Content = "Download";
+            UpdateNowButton.IsEnabled = true;
+            _update = _update with { ZipUrl = null };
+            _installing = false;
+        }
     }
 
     // ================= Data =================

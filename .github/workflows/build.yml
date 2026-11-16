@@ -90,7 +90,8 @@ jobs:
       # Publish EXE
       # ==========================
       - name: Publish
-        run: dotnet publish -c Release -r win-x64 --self-contained true -o dist
+        # InformationalVersion = "2.1.0" or "2.1.0-beta-<run>" – the in-app update checker reads it.
+        run: dotnet publish -c Release -r win-x64 --self-contained true -o dist -p:InformationalVersion=${{ env.VERSION }} -p:IncludeSourceRevisionInInformationalVersion=false
 
       # ==========================
       # Create ZIP FILE
@@ -131,6 +132,8 @@ jobs:
         with:
           tag_name: ${{ env.TAG }}
           name: ${{ env.RELEASE_NAME }}
+          # beta builds are pre-releases, so the app only offers them to people who opt in
+          prerelease: ${{ env.CHANNEL == 'beta' }}
           body: |
             ${{ steps.notes.outputs.body }}
 
