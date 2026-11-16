@@ -26,6 +26,8 @@
   <ItemGroup>
     <Resource Include="app.ico" />
     <Resource Include="logo.png" />
+    <!-- shown in the app's "What's new" after an update -->
+    <EmbeddedResource Include="..\CHANGELOG.md" Link="CHANGELOG.md" LogicalName="CHANGELOG.md" />
   </ItemGroup>
 
 

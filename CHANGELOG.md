@@ -1,18 +1,25 @@
-# 2.2.0
+# Changelog
 
-## New
+Each release has a `## <version>` section. CI copies the section for the version being built into the
+GitHub release description, and the app shows it under "What's new". Write new entries at the top.
+
+## 2.2.0
+
+### New
 - Update notifier: checks GitHub releases (NekoSuneProjects/VRCHAT_AUTO_UPLOAD_DISCORD) on start and every 6 hours
-- Dashboard banner with **Update now** (downloads, closes, updates and restarts – settings/history are kept), **Release notes** and **Skip**
+- Dashboard banner with **Update now** (downloads, closes, updates and restarts – settings/history are kept), **What's new** and **Skip**
+- "What's new" shows the changelog of every version between yours and the update, and the new version's notes after updating
 - Settings → Updates: auto-check on/off, opt-in beta versions, Check now, link to all releases
 - If the app is in a folder it can't write to (e.g. Program Files), "Download" opens the release page instead
 
-## CI
+### CI
 - Builds are stamped with their real version (e.g. 2.2.0-beta-15) so the app can compare versions
 - BETA releases are published as pre-releases (only offered to users who turn on beta updates)
+- Release descriptions come from this CHANGELOG.md (the section for the version being built); release-drafter removed
 
-# 2.1.0
+## 2.1.0
 
-## New
+### New
 - Nekumi support: https://nekumi.nekosunevr.co.uk/integration/vrchat/v1/upload
 - Multiple upload destinations – every photo is posted to each enabled one, each with its own key:
   - **NekoSune Community** (NEKOSUNECOMMUNITY) – personal key from `/vrchatupload key`
@@ -22,16 +29,16 @@
 - Upload history shows the result per server; retry only resends to the servers that failed
 - Sends worldId + instanceId (Nekumi shows them in the post)
 
-## Privacy
+### Privacy
 - Instance info is cleaned before posting: the instance nonce and owner IDs are removed, so a posted photo can't be used to join a private instance
 
-## Changed
+### Changed
 - Settings format v2 (old single URL/key is moved into a "My server" destination automatically; a backup is kept)
 - Server ID / Channel ID only shown for old-style URLs
 
-# 2.0.0
+## 2.0.0
 
-## New
+### New
 - Full GUI app (no more editing .env): Dashboard, Settings, Data and Logs pages, dark modern design
 - Settings + upload history saved in %APPDATA%\NekoSuneVR\VRCX Image Discord Uploader – updates never lose your data
 - Old .env next to the exe is imported automatically on first run (or via Data → Import old .env)
@@ -42,7 +49,7 @@
 - Upload any screenshot by hand, retry failed uploads from the dashboard
 - Reads VRChat's own XMP metadata and the "_wrld_" file name if VRCX metadata is missing
 
-## Fixed
+### Fixed
 - "Could not find file" when VRCX renames the screenshot to ..._wrld_xxx.png
 - Same screenshot being uploaded twice / racing (Created + Renamed events processed in parallel)
 - "Upload failed: Bad Request" when no metadata was found (empty "{}" payload) – the bot now always gets world + players

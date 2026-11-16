@@ -9,6 +9,7 @@ using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using VRCX_Image_Discord_Uploader.Core;
+using VRCX_Image_Discord_Uploader.Views;
 using Forms = System.Windows.Forms;
 
 namespace VRCX_Image_Discord_Uploader;
@@ -89,6 +90,7 @@ public partial class MainWindow : Window
         _updateTimer.Tick += async (_, _) => await CheckUpdatesAsync(manual: false);
         _updateTimer.Start();
         _ = FirstUpdateCheckAsync();
+        ShowWhatsNewAfterUpdate();
 
         if (_settings.StartWatchingOnLaunch && IsConfigured(out _))
             _watcher.Start(_settings);
@@ -617,8 +619,55 @@ public partial class MainWindow : Window
 
     void OpenReleases_Click(object s, RoutedEventArgs e) => OpenUrl(UpdateChecker.ReleasesPage);
 
-    void UpdateNotes_Click(object s, RoutedEventArgs e) =>
-        OpenUrl(string.IsNullOrEmpty(_update?.PageUrl) ? UpdateChecker.ReleasesPage : _update!.PageUrl);
+    // ---- What's new ----
+
+    string _whatsNewUrl = UpdateChecker.ReleasesPage;
+
+    void ShowWhatsNew(string title, string sub, string markdown, string url, bool offerUpdate)
+    {
+        WnTitle.Text = title;
+        WnSub.Text = sub;
+        _whatsNewUrl = string.IsNullOrEmpty(url) ? UpdateChecker.ReleasesPage : url;
+        MarkdownView.Render(WnNotes, markdown);
+        WnUpdate.Visibility = offerUpdate ? Visibility.Visible : Visibility.Collapsed;
+        WnUpdate.Content = UpdateNowButton.Content;
+        WnClose.Content = offerUpdate ? "Later" : "Close";
+        WhatsNew.Visibility = Visibility.Visible; // shown next time the window is opened if it's in the tray
+    }
+
+    /// <summary>Upcoming update: changelog of every version between the running one and the update.</summary>
+    void UpdateNotes_Click(object s, RoutedEventArgs e)
+    {
+        if (_update == null) return;
+        ShowWhatsNew($"Version {_update.Version} is available",
+            $"You have v{AppVersion.Current}. Changes since your version:",
+            _update.Notes, _update.PageUrl, offerUpdate: true);
+    }
+
+    /// <summary>First start after an update: notes for the new version from the CHANGELOG.md built into the exe.</summary>
+    void ShowWhatsNewAfterUpdate()
+    {
+        var now = AppVersion.Current.ToString();
+        var last = _settings.LastRunVersion;
+        if (last == now) return;
+        SaveDestinations(n => n.LastRunVersion = now);
+        if (string.IsNullOrEmpty(last)) return; // fresh install
+
+        var notes = Changelog.For(AppVersion.Current, Changelog.Embedded());
+        if (string.IsNullOrWhiteSpace(notes)) return;
+        Log.Success($"Updated from v{last} to v{now}");
+        ShowWhatsNew($"Updated to v{now}", $"You were on v{last}. Here's what changed:", notes, UpdateChecker.ReleasesPage, offerUpdate: false);
+    }
+
+    void ShowChangelog_Click(object s, RoutedEventArgs e)
+    {
+        var md = Changelog.Embedded();
+        ShowWhatsNew("Changelog", $"You have v{AppVersion.Current}", md.Length > 0 ? md : "Changelog not available in this build.",
+            UpdateChecker.ReleasesPage, offerUpdate: false);
+    }
+
+    void WnClose_Click(object s, RoutedEventArgs e) => WhatsNew.Visibility = Visibility.Collapsed;
+    void WnGitHub_Click(object s, RoutedEventArgs e) => OpenUrl(_whatsNewUrl);
 
     void UpdateSkip_Click(object s, RoutedEventArgs e)
     {
@@ -632,6 +681,7 @@ public partial class MainWindow : Window
     async void UpdateNow_Click(object s, RoutedEventArgs e)
     {
         if (_update == null || _installing) return;
+        WhatsNew.Visibility = Visibility.Collapsed;
         if (_update.ZipUrl == null || !Updater.CanSelfUpdate())
         {
             // e.g. installed in Program Files: let them download it by hand

@@ -74,14 +74,27 @@ public static class UpdateChecker
             ((int)resp.StatusCode == 403 && resp.Headers.TryGetValues("X-RateLimit-Remaining", out var rem) && rem.FirstOrDefault() == "0");
         if (limited) throw new HttpRequestException("GitHub rate limit reached, try again later.");
         if (!resp.IsSuccessStatusCode) throw new HttpRequestException($"GitHub answered {(int)resp.StatusCode} {resp.ReasonPhrase}.");
-        return PickLatest(await resp.Content.ReadAsStringAsync(ct), includeBeta);
+        return PickLatest(await resp.Content.ReadAsStringAsync(ct), includeBeta, AppVersion.Current);
+    }
+
+    /// <summary>CI puts the download link etc. after this marker; the app only shows what's above it.</summary>
+    public const string NotesEndMarker = "<!-- app-notes-end -->";
+
+    static string CleanNotes(string body)
+    {
+        int i = body.IndexOf(NotesEndMarker, StringComparison.Ordinal);
+        return (i >= 0 ? body[..i] : body).Replace("\r\n", "\n").Trim();
     }
 
     /// <summary>Picks the newest release from the GitHub /releases JSON.</summary>
-    public static ReleaseInfo? PickLatest(string json, bool includeBeta)
+    /// <summary>
+    /// Picks the newest release from the GitHub /releases JSON. Its Notes hold the changelog of every
+    /// release newer than <paramref name="current"/> (newest first), so skipped versions aren't missed.
+    /// </summary>
+    public static ReleaseInfo? PickLatest(string json, bool includeBeta, AppVersion current)
     {
         using var doc = JsonDocument.Parse(json);
-        ReleaseInfo? best = null;
+        var all = new List<ReleaseInfo>();
         foreach (var r in doc.RootElement.EnumerateArray())
         {
             if (r.TryGetProperty("draft", out var draft) && draft.GetBoolean()) continue;
@@ -108,10 +121,20 @@ public static class UpdateChecker
                     }
 
             DateTime.TryParse(Str(r, "published_at"), out var published);
-            var info = new ReleaseInfo(v.Value, name.Length > 0 ? name : tag, tag, Str(r, "html_url"), zip, size, Str(r, "body"), published);
-            if (best == null || info.Version > best.Version) best = info;
+            all.Add(new ReleaseInfo(v.Value, name.Length > 0 ? name : tag, tag, Str(r, "html_url"), zip, size, CleanNotes(Str(r, "body")), published));
         }
-        return best;
+        if (all.Count == 0) return null;
+
+        var newest = all.MaxBy(r => r.Version)!;
+        var seen = new HashSet<string>();
+        var parts = new List<string>();
+        foreach (var r in all.Where(r => r.Version > current).OrderByDescending(r => r.Version))
+        {
+            // several betas of one version usually share the same changelog section
+            if (r.Notes.Length == 0 || !seen.Add(r.Notes)) continue;
+            parts.Add($"## {r.Version}\n{r.Notes}");
+        }
+        return newest with { Notes = string.Join("\n\n", parts) };
     }
 
     /// <summary>Newer release than the running one, or null if up to date.</summary>

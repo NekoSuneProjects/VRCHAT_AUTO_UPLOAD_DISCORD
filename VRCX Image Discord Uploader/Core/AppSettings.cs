@@ -106,6 +106,8 @@ public class AppSettings
     public bool BetaUpdates { get; set; } = false;
     /// <summary>Version the user clicked "Skip" on; the banner stays hidden until something newer.</summary>
     public string SkippedVersion { get; set; } = "";
+    /// <summary>Version that last ran; when it changes the app shows "What's new".</summary>
+    public string LastRunVersion { get; set; } = "";
 
     [JsonIgnore] public IEnumerable<UploadDestination> ActiveDestinations =>
         Destinations.Where(d => d.Enabled && !string.IsNullOrWhiteSpace(d.Url) && !string.IsNullOrWhiteSpace(d.AuthKey));
