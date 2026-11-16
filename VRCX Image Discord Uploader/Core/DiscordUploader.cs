@@ -29,26 +29,33 @@ public static class DiscordUploader
                     : $"[{Escape(p.DisplayName)}](<https://vrchat.com/home/user/{p.Id}>)").ToList()
             : new List<string>();
 
-        // The bot always expects both fields – sending "{}" is what caused "Bad Request".
-        return JsonSerializer.Serialize(new { world, players }, Json.Compact);
+        // world + players: what the original bot expects (sending "{}" caused "Bad Request").
+        // worldId + instanceId: extra fields Nekumi shows in the embed; older bots ignore them.
+        return JsonSerializer.Serialize(new
+        {
+            world,
+            worldId = info.WorldId,
+            instanceId = info.InstanceId,
+            players,
+        }, Json.Compact);
     }
 
     static string Escape(string s) => s.Replace("[", "(").Replace("]", ")");
 
-    public static async Task<UploadResult> UploadAsync(AppSettings s, byte[] image, string fileName, string payload, CancellationToken ct = default)
+    public static async Task<UploadResult> UploadAsync(UploadDestination d, byte[] image, string fileName, string payload, CancellationToken ct = default)
     {
-        var url = s.ResolveUploadUrl();
+        var url = d.ResolveUrl();
         if (string.IsNullOrWhiteSpace(url) || !Uri.TryCreate(url, UriKind.Absolute, out _))
-            return new(false, "Upload URL is not set (Settings → Discord).");
-        if (string.IsNullOrWhiteSpace(s.AuthKey))
-            return new(false, "Auth key is not set (Settings → Discord).");
+            return new(false, "Upload URL is not set.");
+        if (string.IsNullOrWhiteSpace(d.AuthKey))
+            return new(false, "Key is not set.");
 
         for (int attempt = 1; attempt <= 3; attempt++)
         {
             try
             {
                 using var req = new HttpRequestMessage(HttpMethod.Post, url);
-                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", s.AuthKey.Trim());
+                req.Headers.Authorization = new AuthenticationHeaderValue("Bearer", d.AuthKey.Trim());
 
                 using var form = new MultipartFormDataContent();
                 form.Add(new StringContent(payload), "vrcjson");
@@ -63,7 +70,8 @@ public static class DiscordUploader
                 if (resp.IsSuccessStatusCode) return new(true, "Uploaded");
 
                 var msg = $"{(int)resp.StatusCode} {resp.ReasonPhrase}";
-                if (!string.IsNullOrWhiteSpace(body)) msg += " – " + Trim(body);
+                var detail = ErrorText(body);
+                if (!string.IsNullOrWhiteSpace(detail)) msg += " – " + detail;
 
                 // client errors won't fix themselves by retrying (except rate limit)
                 if ((int)resp.StatusCode is >= 400 and < 500 and not 429) return new(false, msg);
@@ -78,6 +86,38 @@ public static class DiscordUploader
             await Task.Delay(TimeSpan.FromSeconds(2 * attempt), ct);
         }
         return new(false, "Upload failed");
+    }
+
+    /// <summary>Nekumi answers {"ok":false,"error":"..."}; show just the message when it does.</summary>
+    static string ErrorText(string body)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(body);
+            if (doc.RootElement.TryGetProperty("error", out var e) && e.ValueKind == JsonValueKind.String)
+                return Trim(e.GetString() ?? "");
+        }
+        catch { }
+        return Trim(body);
+    }
+
+    /// <summary>Checks the server is reachable without posting anything (Nekumi /integration/vrchat/health).</summary>
+    public static async Task<UploadResult> CheckAsync(UploadDestination d)
+    {
+        if (!Uri.TryCreate(d.ResolveUrl(), UriKind.Absolute, out var uri)) return new(false, "Upload URL is not valid.");
+        var path = uri.AbsolutePath;
+        int i = path.IndexOf("/integration/vrchat/", StringComparison.OrdinalIgnoreCase);
+        if (i < 0) return new(true, "URL looks valid (not a Nekumi server, so it can't be checked without posting).");
+        var health = new UriBuilder(uri) { Path = path[..i] + "/integration/vrchat/health", Query = "" }.Uri;
+        try
+        {
+            using var cts = new CancellationTokenSource(TimeSpan.FromSeconds(15));
+            using var resp = await Http.GetAsync(health, cts.Token);
+            return resp.IsSuccessStatusCode
+                ? new(true, "Nekumi is reachable.")
+                : new(false, $"Server answered {(int)resp.StatusCode} {resp.ReasonPhrase}.");
+        }
+        catch (Exception ex) { return new(false, "Can't reach server: " + ex.Message); }
     }
 
     static string Trim(string s)

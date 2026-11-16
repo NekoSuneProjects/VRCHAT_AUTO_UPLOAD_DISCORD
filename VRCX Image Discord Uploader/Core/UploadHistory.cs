@@ -4,6 +4,15 @@ using System.Text.Json.Serialization;
 
 namespace VRCX_Image_Discord_Uploader.Core;
 
+public class DestinationResult
+{
+    public string DestinationId { get; set; } = "";
+    public string Name { get; set; } = "";
+    public bool Success { get; set; }
+    public string Error { get; set; } = "";
+    public List<DestinationResult> Results { get; set; } = new();
+}
+
 public class HistoryEntry
 {
     public string BaseName { get; set; } = "";
@@ -14,12 +23,14 @@ public class HistoryEntry
     public string WorldId { get; set; } = "";
     public int PlayerCount { get; set; }
     public string Error { get; set; } = "";
+    public List<DestinationResult> Results { get; set; } = new();
 
     [JsonIgnore] public string FileName => Path.GetFileName(FilePath);
     [JsonIgnore] public string TimeText => Time.ToString("dd MMM HH:mm:ss");
-    [JsonIgnore] public string StatusText => Success ? "Uploaded" : "Failed";
+    [JsonIgnore] public string StatusText => Success ? "Uploaded" : Results.Any(r => r.Success) ? "Partly failed" : "Failed";
+    [JsonIgnore] public string DestinationsText => Results.Count == 0 ? "" : string.Join("  ·  ", Results.Select(r => (r.Success ? "✓ " : "✗ ") + r.Name));
     [JsonIgnore] public string WorldText => string.IsNullOrEmpty(WorldName) ? (string.IsNullOrEmpty(WorldId) ? "No world info" : WorldId) : WorldName;
-    [JsonIgnore] public string Detail => Success ? $"{WorldText} · {PlayerCount} player(s)" : Error;
+    [JsonIgnore] public string Detail => Success ? $"{PlayerCount} player(s) · {DestinationsText}" : Error;
 }
 
 public class UploadHistory
@@ -60,8 +71,19 @@ public class UploadHistory
     {
         lock (_lock)
         {
-            // a later success replaces earlier failures for the same screenshot
-            if (e.Success) _items.RemoveAll(i => !i.Success && i.BaseName.Equals(e.BaseName, StringComparison.OrdinalIgnoreCase));
+            // Same screenshot again (retry / re-upload): merge per-destination results into one entry.
+            var prev = _items.FirstOrDefault(i => i.BaseName.Equals(e.BaseName, StringComparison.OrdinalIgnoreCase));
+            if (prev != null)
+            {
+                var newIds = e.Results.Select(r => r.DestinationId).ToHashSet();
+                e.Results = prev.Results.Where(r => !newIds.Contains(r.DestinationId)).Concat(e.Results).ToList();
+                if (e.Results.Count > 0)
+                {
+                    e.Success = e.Results.All(r => r.Success);
+                    e.Error = e.Success ? "" : string.Join("; ", e.Results.Where(r => !r.Success).Select(r => $"{r.Name}: {r.Error}"));
+                }
+                _items.Remove(prev);
+            }
             _items.Insert(0, e);
             if (_items.Count > Limit) _items.RemoveRange(Limit, _items.Count - Limit);
             SaveLocked();
