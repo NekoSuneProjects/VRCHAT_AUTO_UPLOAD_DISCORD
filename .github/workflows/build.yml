@@ -1,4 +1,4 @@
-name: Windows Release Build + ZIP + Discord Upload
+name: Windows Release Build + ZIP
 
 permissions:
   contents: write
@@ -116,14 +116,12 @@ jobs:
         uses: release-drafter/release-drafter@v7
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
+          # v7 builds "github:" config paths with "\" on Windows runners (404 from the API),
+          # so read the checked-out file from disk instead.
+          config-name: file:release-drafter.yml
           version: ${{ env.VERSION }}
           name: ${{ env.RELEASE_NAME }}
           tag: ${{ env.TAG }}
-
-      - name: Save Release Notes
-        shell: pwsh
-        run: |
-          Set-Content -Path release_notes.txt -Value "${{ steps.notes.outputs.body }}"
 
       # ==========================
       # GitHub Release + Upload ZIP
@@ -143,32 +141,3 @@ jobs:
           overwrite_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      # ==========================
-      # Discord Webhook
-      # ==========================
-      - name: Send to Discord
-        shell: pwsh
-        env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK }}
-        run: |
-          $notes = Get-Content release_notes.txt -Raw
-
-          $zipUrl = "https://github.com/${{ github.repository }}/releases/download/${{ env.TAG }}/${{ env.ZIP_NAME }}"
-
-          $color = if ($env:CHANNEL -eq "beta") { 16750848 } else { 65280 }
-
-          $json = @{
-            username = "VRCX Uploader Bot"
-            content = "<@&1384262560395559122> **NEW WINDOWS RELEASE**"
-            embeds = @(
-              @{
-                title = $env:RELEASE_NAME
-                description = "$notes`n`n**Download:**`n$zipUrl"
-                color = $color
-                timestamp = (Get-Date).ToString("o")
-              }
-            )
-          } | ConvertTo-Json -Depth 10
-
-          Invoke-RestMethod -Uri $env:DISCORD_WEBHOOK -Method Post -Body $json -ContentType "application/json"
